@@ -8,7 +8,9 @@ for GitHub Actions environment variables and secrets.
 
 import sys
 from pathlib import Path
+
 import yaml
+
 
 def main():
     contract_path = Path("config/dat-contract.yaml")

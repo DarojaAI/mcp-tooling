@@ -1,9 +1,11 @@
 """Get offer details tool."""
 
 from typing import Any
+
+import httpx
+
 from runtime.base import BaseTool
 from servers.duffel.client import DuffelClient
-import httpx
 
 
 class GetOfferTool(BaseTool):

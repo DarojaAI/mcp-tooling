@@ -1,7 +1,8 @@
 """Tests for runtime.secrets"""
 
+
 import pytest
-from pathlib import Path
+
 from runtime.secrets import load_secrets
 
 

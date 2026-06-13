@@ -4,8 +4,10 @@ Tool registry for MCP servers.
 Manages tool registration, listing, validation, and dispatch.
 """
 
-import jsonschema
 from typing import Any
+
+import jsonschema
+
 from runtime.base import BaseTool
 
 

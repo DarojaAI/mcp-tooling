@@ -4,9 +4,9 @@ Duffel API client wrapper.
 Thin async wrapper over the Duffel REST API. No business logic - just SDK calls.
 """
 
+from typing import Any
+
 import httpx
-from typing import Any, List, Dict
-from datetime import date
 
 
 class DuffelClient:
@@ -47,10 +47,10 @@ class DuffelClient:
         origin: str,
         destination: str,
         departure_date: str,
-        passengers: List[Dict[str, Any]] | None = None,
+        passengers: list[dict[str, Any]] | None = None,
         cabin_class: str = "economy",
         return_date: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Search for flight offers.
         
@@ -97,7 +97,7 @@ class DuffelClient:
         response.raise_for_status()
         return response.json()
     
-    async def get_offer(self, offer_id: str) -> Dict[str, Any]:
+    async def get_offer(self, offer_id: str) -> dict[str, Any]:
         """
         Get details for a specific offer.
         
@@ -114,9 +114,9 @@ class DuffelClient:
     async def create_order(
         self,
         offer_id: str,
-        passengers: List[Dict[str, Any]],
-        payment: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        passengers: list[dict[str, Any]],
+        payment: dict[str, Any],
+    ) -> dict[str, Any]:
         """
         Create an order (book a flight).
         
@@ -140,7 +140,7 @@ class DuffelClient:
         response.raise_for_status()
         return response.json()
     
-    async def get_order(self, order_id: str) -> Dict[str, Any]:
+    async def get_order(self, order_id: str) -> dict[str, Any]:
         """
         Get order details.
         
@@ -157,7 +157,7 @@ class DuffelClient:
     async def cancel_order(
         self,
         order_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Cancel an order.
         

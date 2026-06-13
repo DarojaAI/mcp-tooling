@@ -7,7 +7,6 @@ Provides two layers of filtering:
 """
 
 import os
-from typing import Set
 
 
 class Allowlist:
@@ -30,8 +29,8 @@ class Allowlist:
     
     def __init__(
         self,
-        allowed_tools: Set[str] | None = None,
-        allowed_tokens: Set[str] | None = None,
+        allowed_tools: set[str] | None = None,
+        allowed_tokens: set[str] | None = None,
         allow_all_tools: bool = False,
         allow_all_callers: bool = False,
     ) -> None:

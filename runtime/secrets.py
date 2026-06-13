@@ -6,14 +6,13 @@ Loads secrets from a dotenv-style file with explicit allowlist validation.
 
 import os
 from pathlib import Path
-from typing import Dict, Set
 
 
 def load_secrets(
     path: Path | str | None = None,
-    required_keys: Set[str] | None = None,
-    optional_keys: Set[str] | None = None,
-) -> Dict[str, str]:
+    required_keys: set[str] | None = None,
+    optional_keys: set[str] | None = None,
+) -> dict[str, str]:
     """
     Load secrets from an environment file.
     
@@ -57,9 +56,7 @@ def load_secrets(
             value = value.strip()
             
             # Remove quotes if present
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-            elif value.startswith("'") and value.endswith("'"):
+            if value.startswith('"') and value.endswith('"') or value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
             
             secrets[key] = value

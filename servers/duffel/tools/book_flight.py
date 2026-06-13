@@ -1,10 +1,12 @@
 """Book flight tool."""
 
+import os
 from typing import Any
+
+import httpx
+
 from runtime.base import BaseTool
 from servers.duffel.client import DuffelClient
-import httpx
-import os
 
 
 class BookFlightTool(BaseTool):

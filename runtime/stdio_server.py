@@ -7,8 +7,10 @@ Wraps the official mcp Python SDK's stdio transport for tool serving.
 import asyncio
 import sys
 from typing import Any
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+
 from runtime.registry import ToolRegistry
 
 

@@ -10,20 +10,19 @@ Usage:
 import argparse
 import asyncio
 import sys
-from pathlib import Path
 
-from runtime.registry import ToolRegistry
-from runtime.stdio_server import start_stdio_server
-from runtime.http_server import create_app
-from runtime.secrets import load_secrets
 from runtime.allowlist import Allowlist
+from runtime.http_server import create_app
+from runtime.registry import ToolRegistry
+from runtime.secrets import load_secrets
+from runtime.stdio_server import start_stdio_server
 from servers.duffel.client import DuffelClient
 from servers.duffel.tools import (
-    SearchFlightsTool,
-    GetOfferTool,
     BookFlightTool,
-    GetBookingTool,
     CancelBookingTool,
+    GetBookingTool,
+    GetOfferTool,
+    SearchFlightsTool,
 )
 
 

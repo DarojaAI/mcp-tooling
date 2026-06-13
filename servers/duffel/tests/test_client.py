@@ -1,7 +1,8 @@
 """Tests for Duffel client."""
 
-import pytest
 import httpx
+import pytest
+
 from servers.duffel.client import DuffelClient
 
 

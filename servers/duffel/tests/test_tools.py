@@ -1,14 +1,15 @@
 """Tests for Duffel tools."""
 
-import pytest
 import httpx
+import pytest
+
 from servers.duffel.client import DuffelClient
 from servers.duffel.tools import (
-    SearchFlightsTool,
-    GetOfferTool,
     BookFlightTool,
-    GetBookingTool,
     CancelBookingTool,
+    GetBookingTool,
+    GetOfferTool,
+    SearchFlightsTool,
 )
 
 

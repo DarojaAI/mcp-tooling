@@ -1,0 +1,80 @@
+# Data Access Tier (DAT) Contract for mcp-tooling
+# Single source of truth for environment variable names used across
+# the deploy pipeline. All scripts MUST read from this file.
+
+# ── deploy_env_vars ──
+# Used by GitHub Actions deploy workflow and Terraform.
+
+deploy_env_vars:
+  server_name:
+    description: "Hetzner server hostname for the duffel MCP server"
+    github_var: "SERVER_NAME"
+    required: true
+    default: "mcp-duffel-dev"
+
+  hetzner_location:
+    description: "Hetzner datacenter location (hel1, fsn1, nbg1)"
+    github_var: "HETZNER_LOCATION"
+    required: true
+    default: "hel1"
+
+  server_type:
+    description: "Hetzner server type (cx22 = 2 vCPU, 4GB RAM)"
+    github_var: "SERVER_TYPE"
+    required: true
+    default: "cx22"
+
+  hetzner_ssh_key_name:
+    description: "SSH key name registered in Hetzner project"
+    github_var: "HETZNER_SSH_KEY_NAME"
+    required: true
+
+  hcx_storage_url:
+    description: "S3-compatible endpoint for Terraform state (e.g., s3.us-west-1.amazonaws.com)"
+    github_var: "HCX_STORAGE_URL"
+    required: true
+
+  terraform_state_bucket:
+    description: "S3 bucket name for Terraform state"
+    github_var: "TERRAFORM_STATE_BUCKET"
+    required: true
+
+  terraform_state_key:
+    description: "S3 key path for Terraform state file"
+    github_var: "TERRAFORM_STATE_KEY"
+    required: true
+    default: "mcp-tooling/duffel/terraform.tfstate"
+
+# ── secrets ──
+# GitHub Actions secrets (not environment variables)
+
+secrets:
+  hetzner_api_token:
+    description: "Hetzner Cloud API token (used by terraform + hcloud-cli)"
+    github_secret: "HETZNER_API_TOKEN"
+    required: true
+
+  hcx_access_key:
+    description: "S3 access key for Terraform state backend"
+    github_secret: "HCX_ACCESS_KEY"
+    required: true
+
+  hcx_secret_key:
+    description: "S3 secret key for Terraform state backend"
+    github_secret: "HCX_SECRET_KEY"
+    required: true
+
+  ssh_private_key:
+    description: "ED25519 private key (no passphrase) for SSH access to the VM"
+    github_secret: "SSH_PRIVATE_KEY"
+    required: true
+
+  duffel_api_key:
+    description: "Duffel API key (sandbox or production)"
+    github_secret: "DUFFEL_API_KEY"
+    required: true
+
+  mcptooling_allowed_tokens:
+    description: "Comma-separated bearer tokens for MCP client allowlist"
+    github_secret: "MCPTOOLING_ALLOWED_TOKENS"
+    required: true

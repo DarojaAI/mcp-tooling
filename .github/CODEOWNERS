@@ -1,0 +1,10 @@
+# Default owner for everything
+* @patelmm79
+
+# Runtime framework (core abstractions)
+/runtime/ @patelmm79
+
+# CI/CD and contracts
+/.github/ @patelmm79
+/config/ @patelmm79
+/scripts/ci/ @patelmm79

@@ -16,14 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Placeholder
+        env:
+          HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+          HCX_ACCESS_KEY: ${{ secrets.HCX_ACCESS_KEY }}
+          HCX_SECRET_KEY: ${{ secrets.HCX_SECRET_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
+          MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}
         run: |
           echo "Deploy workflow placeholder - Phase 4 implementation pending"
           echo "Contract vars: ${{ vars.SERVER_NAME }}, ${{ vars.HETZNER_LOCATION }}, ${{ vars.SERVER_TYPE }}"
           echo "Contract vars: ${{ vars.HETZNER_SSH_KEY_NAME }}, ${{ vars.HCX_STORAGE_URL }}"
           echo "Contract vars: ${{ vars.TERRAFORM_STATE_BUCKET }}, ${{ vars.TERRAFORM_STATE_KEY }}"
-          echo "Contract secrets: ${{ secrets.HETZNER_API_TOKEN && 'present' || 'missing' }}"
-          echo "Contract secrets: ${{ secrets.HCX_ACCESS_KEY && 'present' || 'missing' }}"
-          echo "Contract secrets: ${{ secrets.HCX_SECRET_KEY && 'present' || 'missing' }}"
-          echo "Contract secrets: ${{ secrets.SSH_PRIVATE_KEY && 'present' || 'missing' }}"
-          echo "Contract secrets: ${{ secrets.DUFFEL_API_KEY && 'present' || 'missing' }}"
-          echo "Contract secrets: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS && 'present' || 'missing' }}"
+          echo "Secrets loaded (not shown for security)"

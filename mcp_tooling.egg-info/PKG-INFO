@@ -1,0 +1,122 @@
+Metadata-Version: 2.4
+Name: mcp-tooling
+Version: 0.1.0
+Summary: MCP tool servers for OpenClaw agents: capability layer wrapping external APIs and host operations
+Author-email: DarojaAI <dev@daroja.ai>
+License: MIT
+Keywords: mcp,model-context-protocol,agent,openclaw
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.12
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: mcp>=1.0.0
+Requires-Dist: fastapi>=0.111.0
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: uvicorn>=0.30.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: jsonschema>=4.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0.0; extra == "dev"
+Requires-Dist: ruff>=0.4.0; extra == "dev"
+Requires-Dist: mypy>=1.10.0; extra == "dev"
+Requires-Dist: types-pyyaml; extra == "dev"
+Dynamic: license-file
+
+# mcp-tooling
+
+**MCP tool servers for OpenClaw agents: capability layer wrapping external APIs and host operations**
+
+## What is this?
+
+This repo provides **MCP (Model Context Protocol) servers** that expose external capabilities to OpenClaw agents:
+
+- **Travel booking** (Duffel API) — search flights, book, manage bookings
+- **VM operations** (planned) — host diagnostics, log tailing, process control
+- **Calendar/scheduling** (planned) — Cal.com integration
+- **Payments** (planned) — Stripe integration
+
+Each server is a **capability adapter**: it wraps a third-party API with tool-calling interfaces that agents can use.
+
+## Architecture
+
+See [dev-nexus architectural boundaries](https://github.com/DarojaAI/dev-nexus/blob/main/docs/architecture/architectural-boundaries.md) for the separation of concerns:
+
+- **mcp-tooling** (this repo): **Capability Layer** — adapts external APIs
+- **dev-nexus**: **Analysis Layer** — repository intelligence, code/data analysis
+- **openclaw-gateway**: **Orchestration Layer** — agent runtime, multi-step workflows
+
+### Directory structure
+
+```
+mcp-tooling/
+├── runtime/           # Shared framework (BaseTool, registry, stdio/HTTP servers)
+├── servers/           # Per-capability servers (duffel/, vm-ops/, cal/, etc.)
+├── deploy/            # Deployment configs (Hetzner, AWS, GCP, etc.)
+├── config/            # Data contract (GitHub Actions vars/secrets)
+├── scripts/ci/        # CI validation scripts
+├── docs/              # Architecture decisions, authoring guides
+└── tests/             # Framework + server tests
+```
+
+## Quick start
+
+### Running a server locally (stdio)
+
+```bash
+# Install dependencies
+pip install -e .
+
+# Set up secrets
+cp servers/duffel/config.example.env /etc/mcp-tooling/secrets.env
+# Edit secrets.env with your Duffel API key
+
+# Run the Duffel server
+python -m servers.duffel
+```
+
+The server speaks MCP over stdio. Connect with any MCP client (e.g., openclaw-gateway).
+
+### Running a server locally (HTTP)
+
+```bash
+python -m servers.duffel --http --port 8765
+curl http://localhost:8765/healthz
+```
+
+### Deploying to Hetzner
+
+See [deploy/hetzner/README.md](deploy/hetzner/README.md) (coming in Phase 4).
+
+## Adding a new server
+
+See [docs/authoring-server.md](docs/authoring-server.md) for the step-by-step guide.
+
+**TL;DR:**
+1. Create `servers/<name>/`
+2. Write tools that inherit from `runtime/base.py:BaseTool`
+3. Register them in `servers/<name>/server.py`
+4. Add tests in `servers/<name>/tests/`
+
+The runtime handles stdio/HTTP, health checks, allowlists, and secrets loading — you just write the tool logic.
+
+## Data contract
+
+**All GitHub Actions environment variables and secrets are documented in `config/dat-contract.yaml`.**
+
+See [docs/github-actions-secrets.md](docs/github-actions-secrets.md) for the rendered reference (auto-generated from the contract).
+
+## Contributing
+
+- **Boundary check:** If adding code to `runtime/` or `servers/<name>/tools/`, confirm it doesn't belong in dev-nexus (analysis) or openclaw-gateway (orchestration) per [architectural boundaries](https://github.com/DarojaAI/dev-nexus/blob/main/docs/architecture/architectural-boundaries.md).
+- **Contract changes:** If editing `config/dat-contract.yaml`, regenerate the docs: `python3 scripts/ci/generate-secrets-doc.py`
+- **Tests:** CI runs `pytest tests/` — keep it green.
+
+## License
+
+MIT

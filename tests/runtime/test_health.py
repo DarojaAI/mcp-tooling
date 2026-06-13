@@ -1,9 +1,10 @@
 """Tests for runtime.health"""
 
 import time
+
+from runtime.base import BaseTool
 from runtime.health import health_report
 from runtime.registry import ToolRegistry
-from runtime.base import BaseTool
 
 
 class DummyTool(BaseTool):

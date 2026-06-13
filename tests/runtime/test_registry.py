@@ -1,8 +1,9 @@
 """Tests for runtime.registry"""
 
 import pytest
-from runtime.registry import ToolRegistry
+
 from runtime.base import BaseTool
+from runtime.registry import ToolRegistry
 
 
 class MockTool(BaseTool):

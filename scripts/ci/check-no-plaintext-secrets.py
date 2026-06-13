@@ -11,8 +11,8 @@ Usage:
     python3 scripts/ci/check-no-plaintext-secrets.py <file1> <file2> ...
 """
 
-import sys
 import re
+import sys
 from pathlib import Path
 
 # Patterns that look like secrets

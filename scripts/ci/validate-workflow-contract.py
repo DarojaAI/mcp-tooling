@@ -11,10 +11,12 @@ This script:
    - Contract lists a required var/secret not used by any workflow
 """
 
-import sys
 import re
+import sys
 from pathlib import Path
+
 import yaml
+
 
 def extract_refs_from_workflow(content: str) -> tuple[set[str], set[str]]:
     """Extract vars.X and secrets.Y references from workflow YAML."""
@@ -35,7 +37,7 @@ def main():
         sys.exit(1)
     
     if not workflows_dir.exists():
-        print(f"⚠️  No workflows directory found, skipping validation")
+        print("⚠️  No workflows directory found, skipping validation")
         sys.exit(0)
     
     # Load contract

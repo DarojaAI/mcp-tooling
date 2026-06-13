@@ -61,8 +61,8 @@ def main() -> int:
         print(f"  - {k}")
 
     if systemd_refs is None:
-        print(f"[CONTRACT] systemd unit has EnvironmentFile= directive (all vars loaded automatically)")
-        print(f"[CONTRACT] OK: skipping per-key validation")
+        print("[CONTRACT] systemd unit has EnvironmentFile= directive (all vars loaded automatically)")
+        print("[CONTRACT] OK: skipping per-key validation")
         return 0
 
     print(f"[CONTRACT] systemd inline Environment= references ({len(systemd_refs)} unique):")

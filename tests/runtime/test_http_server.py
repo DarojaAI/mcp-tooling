@@ -1,11 +1,11 @@
 """Tests for runtime.http_server"""
 
-import pytest
 from fastapi.testclient import TestClient
+
+from runtime.allowlist import Allowlist
+from runtime.base import BaseTool
 from runtime.http_server import create_app
 from runtime.registry import ToolRegistry
-from runtime.base import BaseTool
-from runtime.allowlist import Allowlist
 
 
 class EchoTool(BaseTool):

@@ -1,7 +1,7 @@
 """Tests for runtime.allowlist"""
 
-import os
 import pytest
+
 from runtime.allowlist import Allowlist
 
 

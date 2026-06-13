@@ -38,7 +38,7 @@ def main():
         "|----------|-------------|----------|---------|",
     ]
     
-    for key, spec in contract.get("deploy_env_vars", {}).items():
+    for _key, spec in contract.get("deploy_env_vars", {}).items():
         var_name = spec["github_var"]
         desc = spec["description"]
         required = "✅" if spec.get("required", False) else "❌"
@@ -55,7 +55,7 @@ def main():
         "|--------|-------------|----------|",
     ])
     
-    for key, spec in contract.get("secrets", {}).items():
+    for _key, spec in contract.get("secrets", {}).items():
         secret_name = spec["github_secret"]
         desc = spec["description"]
         required = "✅" if spec.get("required", False) else "❌"

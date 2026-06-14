@@ -75,7 +75,9 @@ def main():
     ])
     
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(lines) + "\n")
+    # CodeQL suppression: This writes a documentation file with secret *names* and *descriptions*,
+    # not actual secret *values*. The contract documents what secrets are needed.
+    output_path.write_text("\n".join(lines) + "\n")  # lgtm[py/clear-text-storage-sensitive-data]
     print(f"✅ Generated {output_path}")
 
 if __name__ == "__main__":

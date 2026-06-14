@@ -56,7 +56,9 @@ def main():
     ])
     
     for _key, spec in contract.get("secrets", {}).items():
-        secret_name = spec["github_secret"]
+        # CodeQL suppression: This reads secret *names* and *descriptions* from a YAML contract,
+        # not actual secret values. The contract documents what secrets are needed, not their values.
+        secret_name = spec["github_secret"]  # nosec B105
         desc = spec["description"]
         required = "✅" if spec.get("required", False) else "❌"
         lines.append(f"| `{secret_name}` | {desc} | {required} |")

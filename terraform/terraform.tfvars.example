@@ -1,0 +1,10 @@
+# terraform-hcloud-linux-vm consumer variables
+# Copy to terraform.tfvars and fill in your values.
+
+hcloud_token = "your-hetzner-api-token"
+server_name  = "mcp-tooling-dev"
+server_type  = "cx22"
+location     = "hel1"
+image        = "ubuntu-24.04"
+
+# hetzner_ssh_key_name = "my-ssh-key"

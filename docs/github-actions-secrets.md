@@ -20,6 +20,10 @@ Set these in: **Settings → Environments → `<environment>` → Environment va
 
 ## Secrets
 
+> The Secrets section is hand-maintained in `docs/secrets-section.md` and copied into this doc by `scripts/ci/generate-secrets-doc.py`. It is not auto-generated from the contract because CodeQL's clear-text-storage-sensitive-data alert flags any code that reads values from a `secrets:` block, even when those values are *names* not *values*.
+
+## Secrets Reference
+
 Set these in: **Settings → Secrets and variables → Actions → Repository secrets**
 
 | Secret | Description | Required |
@@ -31,9 +35,13 @@ Set these in: **Settings → Secrets and variables → Actions → Repository se
 | `DUFFEL_API_KEY` | Duffel API key (sandbox or production) | ✅ |
 | `MCPTOOLING_ALLOWED_TOKENS` | Comma-separated bearer tokens for MCP client allowlist | ✅ |
 
+> **When adding a new secret:** update this file manually. The CI doc-generator
+> does *not* read `config/dat-contract.yaml`'s `secrets:` block on purpose — see
+> `scripts/ci/generate-secrets-doc.py` for the rationale.
+
 ---
 
-**Note:** If you add/remove entries in `config/dat-contract.yaml`, regenerate this doc:
+**Note:** If you add/remove entries in `config/dat-contract.yaml`'s `deploy_env_vars` block, regenerate this doc:
 
 ```bash
 python3 scripts/ci/generate-secrets-doc.py

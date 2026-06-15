@@ -20,7 +20,7 @@ Set these in: **Settings → Environments → `<environment>` → Environment va
 
 ## Secrets
 
-> The Secrets section is hand-maintained in `docs/secrets-section.md` and copied into this doc by `scripts/ci/generate-secrets-doc.py`. It is not auto-generated from the contract because CodeQL's clear-text-storage-sensitive-data alert flags any code that reads values from a `secrets:` block, even when those values are *names* not *values*.
+> The Secrets section is hand-maintained in `docs/github-actions-secrets-fragment.md` and copied into this doc by `scripts/ci/generate-secrets-doc.py`. It is not auto-generated from the contract because CodeQL's clear-text-storage-sensitive-data alert flags any code that reads values from a `secrets:` block, even when those values are *names* not *values*.
 
 ## Secrets Reference
 

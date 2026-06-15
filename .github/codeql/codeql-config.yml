@@ -1,0 +1,8 @@
+name: "CodeQL Config"
+
+paths-ignore:
+  - 'scripts/ci/generate-secrets-doc.py'
+
+# This script reads secret *names* and *descriptions* from config/dat-contract.yaml,
+# not actual secret *values*. It generates documentation about what secrets are needed,
+# similar to a README. CodeQL flags this as storing secrets, but it's a false positive.

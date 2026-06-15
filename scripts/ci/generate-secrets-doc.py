@@ -61,7 +61,8 @@ def main():
         secret_name = spec["github_secret"]  # nosec B105
         desc = spec["description"]
         required = "✅" if spec.get("required", False) else "❌"
-        lines.append(f"| `{secret_name}` | {desc} | {required} |")  # lgtm[py/clear-text-storage-sensitive-data]
+        # codeql[py/clear-text-storage-sensitive-data]
+        lines.append(f"| `{secret_name}` | {desc} | {required} |")
     
     lines.extend([
         "",

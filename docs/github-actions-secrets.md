@@ -1,8 +1,8 @@
 # GitHub Actions Environment Variables and Secrets
 
-**Auto-generated from `config/dat-contract.yaml`**
-
 This document lists all environment variables and secrets required by mcp-tooling's GitHub Actions workflows.
+
+**Source of truth:** See [`.env.example`](../.env.example) in the repository root.
 
 ## Environment Variables
 
@@ -13,16 +13,12 @@ Set these in: **Settings → Environments → `<environment>` → Environment va
 | `SERVER_NAME` | Hetzner server hostname for the duffel MCP server | ✅ | `mcp-duffel-dev` |
 | `HETZNER_LOCATION` | Hetzner datacenter location (hel1, fsn1, nbg1) | ✅ | `hel1` |
 | `SERVER_TYPE` | Hetzner server type (cx22 = 2 vCPU, 4GB RAM) | ✅ | `cx22` |
-| `HETZNER_SSH_KEY_NAME` | SSH key name registered in Hetzner project | ✅ | `—` |
-| `HCX_STORAGE_URL` | S3-compatible endpoint for Terraform state (e.g., s3.us-west-1.amazonaws.com) | ✅ | `—` |
-| `TERRAFORM_STATE_BUCKET` | S3 bucket name for Terraform state | ✅ | `—` |
+| `HETZNER_SSH_KEY_NAME` | SSH key name registered in Hetzner project | ✅ | — |
+| `HCX_STORAGE_URL` | S3-compatible endpoint for Terraform state (e.g., s3.us-west-1.amazonaws.com) | ✅ | — |
+| `TERRAFORM_STATE_BUCKET` | S3 bucket name for Terraform state | ✅ | — |
 | `TERRAFORM_STATE_KEY` | S3 key path for Terraform state file | ✅ | `mcp-tooling/duffel/terraform.tfstate` |
 
 ## Secrets
-
-> The Secrets section is hand-maintained in `docs/github-actions-secrets-fragment.md` and copied into this doc by `scripts/ci/generate-secrets-doc.py`. It is not auto-generated from the contract because CodeQL's clear-text-storage-sensitive-data alert flags any code that reads values from a `secrets:` block, even when those values are *names* not *values*.
-
-## Secrets Reference
 
 Set these in: **Settings → Secrets and variables → Actions → Repository secrets**
 
@@ -35,14 +31,6 @@ Set these in: **Settings → Secrets and variables → Actions → Repository se
 | `DUFFEL_API_KEY` | Duffel API key (sandbox or production) | ✅ |
 | `MCPTOOLING_ALLOWED_TOKENS` | Comma-separated bearer tokens for MCP client allowlist | ✅ |
 
-> **When adding a new secret:** update this file manually. The CI doc-generator
-> does *not* read `config/dat-contract.yaml`'s `secrets:` block on purpose — see
-> `scripts/ci/generate-secrets-doc.py` for the rationale.
-
 ---
 
-**Note:** If you add/remove entries in `config/dat-contract.yaml`'s `deploy_env_vars` block, regenerate this doc:
-
-```bash
-python3 scripts/ci/generate-secrets-doc.py
-```
+**Tip:** When adding a new secret or environment variable, update both [`.env.example`](../.env.example) and this document.

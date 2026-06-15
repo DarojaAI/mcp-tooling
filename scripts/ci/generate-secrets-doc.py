@@ -4,10 +4,11 @@ Generate docs/github-actions-secrets.md from config/dat-contract.yaml.
 
 This script reads the data contract and emits a human-readable reference doc
 for GitHub Actions environment variables. The Secrets section is hand-written
-(see docs/secrets-section.md) and copied in verbatim — we intentionally do not
-parse the `secrets` block of the contract, because reading any value reachable
-from a "secrets" key in YAML trips CodeQL's clear-text-storage-sensitive-data
-alert and produces false-positives on documentation generation.
+(see docs/github-actions-secrets-fragment.md) and copied in verbatim — we
+intentionally do not parse the `secrets` block of the contract, because
+reading any value reachable from a "secrets" key in YAML trips CodeQL's
+clear-text-storage-sensitive-data alert and produces false-positives on
+documentation generation.
 """
 
 import sys
@@ -15,8 +16,7 @@ from pathlib import Path
 
 import yaml
 
-
-SECRETS_SECTION_PATH = Path("docs/secrets-section.md")
+SECRETS_SECTION_PATH = Path("docs/github-actions-secrets-fragment.md")
 
 
 def main():
@@ -64,12 +64,12 @@ def main():
     lines.append("## Secrets")
     lines.append("")
     lines.append(
-        "> The Secrets section is hand-maintained in `docs/secrets-section.md` "
-        "and copied into this doc by `scripts/ci/generate-secrets-doc.py`. "
-        "It is not auto-generated from the contract because CodeQL's "
-        "clear-text-storage-sensitive-data alert flags any code that reads "
-        "values from a `secrets:` block, even when those values are *names* "
-        "not *values*."
+        "> The Secrets section is hand-maintained in "
+        "`docs/github-actions-secrets-fragment.md` and copied into this doc by "
+        "`scripts/ci/generate-secrets-doc.py`. It is not auto-generated from "
+        "the contract because CodeQL's clear-text-storage-sensitive-data "
+        "alert flags any code that reads values from a `secrets:` block, "
+        "even when those values are *names* not *values*."
     )
     lines.append("")
 

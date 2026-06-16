@@ -44,7 +44,7 @@ on:
 jobs:
   apply:
     name: "Terraform ${{ inputs.action }}"
-    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@main
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@fix/remove-reserved-github-token-secret
     with:
       action: ${{ inputs.action }}
       environment: ${{ inputs.environment }}
@@ -66,7 +66,7 @@ jobs:
     name: Deploy to ${{ vars.SERVER_NAME }}
     needs: apply
     if: inputs.action == 'apply' && needs.apply.outputs.deployed == 'true'
-    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@main
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@fix/remove-reserved-github-token-secret
     with:
       server_ip: ${{ needs.apply.outputs.server_ip }}
       server_name: ${{ needs.apply.outputs.server_name }}

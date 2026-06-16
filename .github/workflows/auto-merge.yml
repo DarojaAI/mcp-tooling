@@ -1,0 +1,35 @@
+# =============================================================================
+# mcp-tooling - Auto-merge PRs once checks pass
+# =============================================================================
+# Calls the shared reusable in infra-actions to enable GitHub's native
+# auto-merge on PRs targeting main. GitHub will perform the merge once
+# all required status checks (configured via branch protection) pass.
+#
+# Triggers on PR events: opened, ready_for_review, synchronize, reopened.
+# Skips draft PRs. Uses squash merge.
+# =============================================================================
+
+name: Auto-merge PRs
+
+on:
+  pull_request:
+    types:
+      - opened
+      - ready_for_review
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable:
+    name: Enable auto-merge
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-enable-pr-automerge.yml@main
+    with:
+      branches: main
+      trigger-events: opened,ready_for_review,synchronize,reopened
+      skip-draft: true
+      merge-method: squash
+      delete-branch: true

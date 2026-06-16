@@ -27,9 +27,10 @@ See [dev-nexus architectural boundaries](https://github.com/DarojaAI/dev-nexus/b
 mcp-tooling/
 ├── runtime/           # Shared framework (BaseTool, registry, stdio/HTTP servers)
 ├── servers/           # Per-capability servers (duffel/, vm-ops/, cal/, etc.)
-├── deploy/            # Deployment configs (Hetzner, AWS, GCP, etc.)
-├── config/            # Data contract (GitHub Actions vars/secrets)
+├── terraform/         # Hetzner VM provisioning
 ├── scripts/ci/        # CI validation scripts
+├── scripts/deploy/    # In-VM install script (called by deploy workflow)
+├── config/            # Data contract (GitHub Actions vars/secrets)
 ├── docs/              # Architecture decisions, authoring guides
 └── tests/             # Framework + server tests
 ```
@@ -61,7 +62,21 @@ curl http://localhost:8765/healthz
 
 ### Deploying to Hetzner
 
-See [deploy/hetzner/README.md](deploy/hetzner/README.md) (coming in Phase 4).
+The deploy workflow is in `.github/workflows/deploy-duffel-hetzner.yml` and provisions a Hetzner VM via `terraform/` (using the shared `terraform-hcloud-linux-vm` module), then runs `scripts/deploy/install-vm.sh` on the VM to install the Duffel MCP server as a systemd service.
+
+**Prerequisites** (one-time, per environment):
+1. Create a GitHub environment at `Settings → Environments` (e.g. `dev`, `prod`).
+2. Configure the [required secrets and environment variables](.env.example) on that environment.
+3. Create the HCX S3 bucket (e.g. `terraform-state-mcp-tooling`).
+4. Register an SSH key in your Hetzner project.
+
+**To deploy:**
+1. GitHub Actions → "Deploy Duffel to Hetzner" → Run workflow
+2. Choose environment (dropdown is auto-populated from your GitHub envs via `sync-environment-options.yml`)
+3. Choose action: `plan` (preview) or `apply` (execute)
+4. Review plan output, then re-run with `apply`
+
+**To tear down:** Run the workflow with action `destroy`. The next `apply` will re-create the VM.
 
 ## Adding a new server
 
@@ -84,7 +99,7 @@ See [docs/github-actions-secrets.md](docs/github-actions-secrets.md) for the ren
 ## Contributing
 
 - **Boundary check:** If adding code to `runtime/` or `servers/<name>/tools/`, confirm it doesn't belong in dev-nexus (analysis) or openclaw-gateway (orchestration) per [architectural boundaries](https://github.com/DarojaAI/dev-nexus/blob/main/docs/architecture/architectural-boundaries.md).
-- **Contract changes:** If editing `config/dat-contract.yaml`, regenerate the docs: `python3 scripts/ci/generate-secrets-doc.py`
+- **Contract changes:** If editing `config/dat-contract.yaml`, update `.env.example` and `docs/github-actions-secrets.md` to match.
 - **Tests:** CI runs `pytest tests/` — keep it green.
 
 ## License

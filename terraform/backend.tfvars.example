@@ -1,0 +1,8 @@
+# Backend configuration for local development
+# Copy: cp backend.tfvars.example backend.tfvars
+# Init: terraform init -backend-config=backend.tfvars
+
+endpoints = { s3 = "https://s3.fra1.cloudprovider.de" }
+bucket    = "terraform-state-mcp-tooling"
+key       = "dev/terraform.tfstate"
+region    = "fra1"

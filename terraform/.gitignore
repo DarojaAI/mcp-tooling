@@ -1,0 +1,12 @@
+# Terraform local state and config (CI provides these at runtime)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.tfstate.lock.info
+*.tfvars
+!*.tfvars.example
+backend.tfvars
+crash.log
+crash.*.log
+*.tfplan

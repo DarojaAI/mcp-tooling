@@ -33,7 +33,7 @@ class DuffelClient:
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "Duffel-Version": "v1",
+                "Duffel-Version": "v2",
             },
             timeout=timeout,
         )

@@ -98,7 +98,7 @@ jobs:
     with:
       action: ${{ inputs.action }}
       environment: ${{ inputs.environment }}
-      force: ${{ inputs.force == 'true' }}
+      force: ${{ inputs.force }}
       repo_name: mcp-tooling
       hcx_storage_url: ${{ needs.setup.outputs.hcx_storage_url }}
       hcx_region: ${{ needs.setup.outputs.hcx_region }}

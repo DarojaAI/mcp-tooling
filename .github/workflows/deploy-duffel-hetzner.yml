@@ -18,6 +18,7 @@ name: Deploy Duffel to Hetzner
 
 permissions:
   contents: read
+  id-token: write
 
 on:
   workflow_dispatch:

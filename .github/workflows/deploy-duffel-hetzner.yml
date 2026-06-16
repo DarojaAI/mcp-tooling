@@ -16,6 +16,9 @@
 
 name: Deploy Duffel to Hetzner
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:

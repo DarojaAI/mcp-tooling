@@ -26,13 +26,16 @@ from servers.duffel.tools import (
 )
 
 
-async def main() -> None:
-    parser = argparse.ArgumentParser(description="Duffel MCP server")
-    parser.add_argument("--http", action="store_true", help="Run HTTP server instead of stdio")
-    parser.add_argument("--port", type=int, default=8765, help="HTTP server port (default: 8765)")
-    args = parser.parse_args()
-    
-    # Load secrets
+def setup() -> tuple[ToolRegistry, Allowlist]:
+    """
+    Load secrets, build tool registry, and build allowlist.
+
+    Returns:
+        (registry, allowlist) ready to serve.
+
+    Raises:
+        SystemExit: if secrets are missing or invalid.
+    """
     try:
         secrets = load_secrets(
             required_keys={
@@ -52,39 +55,72 @@ async def main() -> None:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    
-    # Create Duffel client
+
     duffel_client = DuffelClient(
         api_key=secrets["DUFFEL_API_KEY"],
         base_url=secrets.get("DUFFEL_API_URL", "https://api.duffel.com"),
     )
-    
-    # Create tool registry
+
     registry = ToolRegistry()
     registry.register(SearchFlightsTool(duffel_client))
     registry.register(GetOfferTool(duffel_client))
     registry.register(BookFlightTool(duffel_client))
     registry.register(GetBookingTool(duffel_client))
     registry.register(CancelBookingTool(duffel_client))
-    
+
     print(f"✅ Registered {len(registry)} Duffel tools", file=sys.stderr)
     for tool_name in [t.tool_name for t in registry._tools.values()]:
         print(f"   - {tool_name}", file=sys.stderr)
-    
-    if args.http:
-        # HTTP server
-        import uvicorn
-        
-        allowlist = Allowlist.from_env()
-        app = create_app(registry, allowlist=allowlist)
-        
-        print(f"🚀 Starting Duffel MCP HTTP server on port {args.port}", file=sys.stderr)
-        uvicorn.run(app, host="0.0.0.0", port=args.port)
+
+    # Build allowlist from the same tokens we just loaded (MCPTOOLING_ALLOWED_TOKENS
+    # in the secrets file is the canonical source — don't require a second env var).
+    tokens_str = secrets["MCPTOOLING_ALLOWED_TOKENS"]
+    allowed_tokens = set(t.strip() for t in tokens_str.split(",") if t.strip())
+    tools_str = secrets.get("MCPTOOLING_ALLOWED_TOOLS", "")
+    if tools_str:
+        allowed_tools = set(t.strip() for t in tools_str.split(",") if t.strip())
+        allowlist = Allowlist(
+            allowed_tools=allowed_tools,
+            allowed_tokens=allowed_tokens,
+            allow_all_tools=False,
+        )
     else:
-        # stdio server
-        print("🚀 Starting Duffel MCP stdio server", file=sys.stderr)
-        await start_stdio_server(registry)
+        allowlist = Allowlist(
+            allowed_tokens=allowed_tokens,
+            allow_all_tools=True,
+        )
+
+    return registry, allowlist
+
+
+def run_http(registry: ToolRegistry, allowlist: Allowlist, port: int) -> None:
+    """Run the HTTP server (synchronous entrypoint for uvicorn)."""
+    import uvicorn
+
+    app = create_app(registry, allowlist=allowlist)
+    print(f"🚀 Starting Duffel MCP HTTP server on port {port}", file=sys.stderr)
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+async def run_stdio(registry: ToolRegistry) -> None:
+    """Run the stdio server (asynchronous entrypoint)."""
+    print("🚀 Starting Duffel MCP stdio server", file=sys.stderr)
+    await start_stdio_server(registry)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Duffel MCP server")
+    parser.add_argument("--http", action="store_true", help="Run HTTP server instead of stdio")
+    parser.add_argument("--port", type=int, default=8765, help="HTTP server port (default: 8765)")
+    args = parser.parse_args()
+
+    registry, allowlist = setup()
+
+    if args.http:
+        run_http(registry, allowlist, args.port)
+    else:
+        asyncio.run(run_stdio(registry))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

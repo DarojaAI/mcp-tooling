@@ -11,7 +11,7 @@
 #
 # Required environment variables (set per GitHub environment):
 #   SERVER_NAME, HETZNER_LOCATION, SERVER_TYPE, HETZNER_SSH_KEY_NAME,
-#   HCX_STORAGE_URL, TERRAFORM_STATE_BUCKET, TERRAFORM_STATE_KEY
+#   HCX_STORAGE_URL
 # =============================================================================
 
 name: Deploy Duffel to Hetzner
@@ -50,8 +50,7 @@ jobs:
       action: ${{ inputs.action }}
       environment: ${{ inputs.environment }}
       force: ${{ inputs.force == 'true' }}
-      tf_state_bucket: ${{ vars.TERRAFORM_STATE_BUCKET }}
-      tf_state_key: ${{ vars.TERRAFORM_STATE_KEY }}
+      repo_name: mcp-tooling
       hcx_storage_url: ${{ vars.HCX_STORAGE_URL }}
       server_name: ${{ vars.SERVER_NAME }}
       server_type: ${{ vars.SERVER_TYPE }}

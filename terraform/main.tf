@@ -20,8 +20,8 @@ terraform {
   }
 
   backend "s3" {
-    endpoints = { s3 = "https://s3.fra1.cloudprovider.de" }
-    bucket    = "terraform-state-mcp-tooling"
+    endpoint                    = "https://s3.fra1.cloudprovider.de"
+    bucket                      = "terraform-state-mcp-tooling"
     # key is overridden at init time: dev/terraform.tfstate, prod/terraform.tfstate, etc.
     key                         = "dev/terraform.tfstate"
     region                      = "fra1"
@@ -29,7 +29,7 @@ terraform {
     skip_metadata_api_check     = true
     skip_region_validation      = true
     skip_requesting_account_id  = true
-    use_path_style              = true
+    force_path_style            = true
   }
 }
 

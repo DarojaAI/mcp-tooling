@@ -76,7 +76,6 @@ jobs:
           [ -z "${LOCATION:-}" ] && missing+=("HETZNER_LOCATION")
           [ -z "${HETZNER_SSH_KEY_NAME:-}" ] && missing+=("HETZNER_SSH_KEY_NAME")
           [ -z "${HCX_STORAGE_URL:-}" ] && missing+=("HCX_STORAGE_URL")
-          [ -z "${HCX_REGION:-}" ] && missing+=("HCX_REGION (could not extract from HCX_STORAGE_URL)")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Environment '${{ inputs.environment }}' is missing required vars:"
             printf '  - %s\n' "${missing[@]}"
@@ -89,6 +88,7 @@ jobs:
           echo "hcx_storage_url=${HCX_STORAGE_URL}" >> "$GITHUB_OUTPUT"
           # Extract region from HCX storage URL (e.g., "hel1" from "https://hel1.your-objectstorage.com/")
           HCX_REGION=$(echo "${HCX_STORAGE_URL}" | sed -E "s|https?://([a-z0-9]+)\..*|\1|")
+          [ -z "${HCX_REGION:-}" ] && missing+=("HCX_REGION (could not extract from HCX_STORAGE_URL)")
           echo "hcx_region=${HCX_REGION}" >> "$GITHUB_OUTPUT"
 
   apply:

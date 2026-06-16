@@ -5,6 +5,11 @@
 #   - DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml
 #   - DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml
 #
+# Pattern: "setup" job resolves env vars, then the reusable-calling job
+# passes them as inputs. This is required because a job that uses a
+# reusable workflow cannot have its own `environment:` key — the env
+# must be bound on the setup job so ${{ vars.* }} resolves correctly.
+#
 # Required secrets (set per GitHub environment):
 #   HETZNER_API_TOKEN, HCX_ACCESS_KEY, HCX_SECRET_KEY, SSH_PRIVATE_KEY,
 #   DUFFEL_API_KEY, MCPTOOLING_ALLOWED_TOKENS
@@ -43,21 +48,58 @@ on:
         type: boolean
 
 jobs:
-  apply:
-    name: "Terraform ${{ inputs.action }}"
+  setup:
+    name: Resolve env config
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    outputs:
+      server_name: ${{ steps.resolve.outputs.server_name }}
+      server_type: ${{ steps.resolve.outputs.server_type }}
+      location: ${{ steps.resolve.outputs.location }}
+      hetzner_ssh_key_name: ${{ steps.resolve.outputs.hetzner_ssh_key_name }}
+      hcx_storage_url: ${{ steps.resolve.outputs.hcx_storage_url }}
+    steps:
+      - name: Resolve env vars
+        id: resolve
+        env:
+          SERVER_NAME: ${{ vars.SERVER_NAME }}
+          SERVER_TYPE: ${{ vars.SERVER_TYPE }}
+          LOCATION: ${{ vars.HETZNER_LOCATION }}
+          HETZNER_SSH_KEY_NAME: ${{ vars.HETZNER_SSH_KEY_NAME }}
+          HCX_STORAGE_URL: ${{ vars.HCX_STORAGE_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${SERVER_NAME:-}" ] && missing+=("SERVER_NAME")
+          [ -z "${SERVER_TYPE:-}" ] && missing+=("SERVER_TYPE")
+          [ -z "${LOCATION:-}" ] && missing+=("HETZNER_LOCATION")
+          [ -z "${HETZNER_SSH_KEY_NAME:-}" ] && missing+=("HETZNER_SSH_KEY_NAME")
+          [ -z "${HCX_STORAGE_URL:-}" ] && missing+=("HCX_STORAGE_URL")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Environment '${{ inputs.environment }}' is missing required vars:"
+            printf '  - %s\n' "${missing[@]}"
+            exit 1
+          fi
+          echo "server_name=${SERVER_NAME}" >> "$GITHUB_OUTPUT"
+          echo "server_type=${SERVER_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "location=${LOCATION}" >> "$GITHUB_OUTPUT"
+          echo "hetzner_ssh_key_name=${HETZNER_SSH_KEY_NAME}" >> "$GITHUB_OUTPUT"
+          echo "hcx_storage_url=${HCX_STORAGE_URL}" >> "$GITHUB_OUTPUT"
+
+  apply:
+    name: "Terraform ${{ inputs.action }}"
+    needs: setup
     uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@main
     with:
       action: ${{ inputs.action }}
       environment: ${{ inputs.environment }}
       force: ${{ inputs.force == 'true' }}
       repo_name: mcp-tooling
-      hcx_storage_url: ${{ vars.HCX_STORAGE_URL }}
-      server_name: ${{ vars.SERVER_NAME }}
-      server_type: ${{ vars.SERVER_TYPE }}
-      location: ${{ vars.HETZNER_LOCATION }}
-      hetzner_ssh_key_name: ${{ vars.HETZNER_SSH_KEY_NAME }}
+      hcx_storage_url: ${{ needs.setup.outputs.hcx_storage_url }}
+      server_name: ${{ needs.setup.outputs.server_name }}
+      server_type: ${{ needs.setup.outputs.server_type }}
+      location: ${{ needs.setup.outputs.location }}
+      hetzner_ssh_key_name: ${{ needs.setup.outputs.hetzner_ssh_key_name }}
     secrets:
       HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
       HCX_ACCESS_KEY: ${{ secrets.HCX_ACCESS_KEY }}
@@ -65,14 +107,13 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
   deploy:
-    name: Deploy to ${{ vars.SERVER_NAME }}
-    needs: apply
+    name: Deploy to ${{ needs.setup.outputs.server_name }}
+    needs: [setup, apply]
     if: inputs.action == 'apply' && needs.apply.outputs.deployed == 'true'
-    runs-on: ubuntu-latest
     uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@main
     with:
       server_ip: ${{ needs.apply.outputs.server_ip }}
-      server_name: ${{ needs.apply.outputs.server_name }}
+      server_name: ${{ needs.setup.outputs.server_name }}
       remote_path: /opt/mcp-tooling
       install_script: scripts/deploy/install-vm.sh
       health_endpoint: /healthz

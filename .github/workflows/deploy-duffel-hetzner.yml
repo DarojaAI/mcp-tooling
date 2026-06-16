@@ -115,7 +115,6 @@ jobs:
   deploy:
     name: Deploy to ${{ needs.setup.outputs.server_name }}
     needs: [setup, apply]
-    if: needs.apply.outputs.deployed == 'true'
     uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@main
     with:
       server_ip: ${{ needs.apply.outputs.server_ip }}

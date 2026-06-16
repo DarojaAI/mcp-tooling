@@ -1,24 +1,17 @@
 # =============================================================================
 # mcp-tooling - Deploy Duffel MCP server to Hetzner via GitHub Actions
 # =============================================================================
-# Workflow: terraform-apply -> deploy
+# Thin caller that delegates to two shared reusables in infra-actions:
+#   - DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml
+#   - DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml
 #
 # Required secrets (set per GitHub environment):
-#   HETZNER_API_TOKEN      - Hetzner API token
-#   HCX_ACCESS_KEY         - S3 access key for Terraform state backend
-#   HCX_SECRET_KEY         - S3 secret key for Terraform state backend
-#   SSH_PRIVATE_KEY        - ED25519 private key (no passphrase) for SSH access
-#   DUFFEL_API_KEY         - Duffel API key (sandbox or production)
-#   MCPTOOLING_ALLOWED_TOKENS - Comma-separated bearer tokens for MCP clients
+#   HETZNER_API_TOKEN, HCX_ACCESS_KEY, HCX_SECRET_KEY, SSH_PRIVATE_KEY,
+#   DUFFEL_API_KEY, MCPTOOLING_ALLOWED_TOKENS
 #
 # Required environment variables (set per GitHub environment):
-#   SERVER_NAME            - Server hostname (unique per environment)
-#   HETZNER_LOCATION       - Datacenter (hel1, fsn1, nbg1, etc.)
-#   SERVER_TYPE            - Server type (cx22, cpx21, etc.)
-#   HETZNER_SSH_KEY_NAME   - SSH key name registered in Hetzner
-#   HCX_STORAGE_URL        - S3-compatible endpoint for state backend
-#   TERRAFORM_STATE_BUCKET - S3 bucket name for state
-#   TERRAFORM_STATE_KEY    - S3 key path for state file (per environment)
+#   SERVER_NAME, HETZNER_LOCATION, SERVER_TYPE, HETZNER_SSH_KEY_NAME,
+#   HCX_STORAGE_URL, TERRAFORM_STATE_BUCKET, TERRAFORM_STATE_KEY
 # =============================================================================
 
 name: Deploy Duffel to Hetzner
@@ -45,331 +38,41 @@ on:
         default: 'false'
         type: boolean
 
-env:
-  TF_VERSION: '1.7'
-  TERRAFORM_DIR: 'terraform'
-
 jobs:
-  terraform:
-    name: Terraform
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      id-token: write
-    outputs:
-      deployed: ${{ steps.apply.outputs.deployed }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Validate required env vars and secrets are set
-        env:
-          SERVER_NAME: ${{ vars.SERVER_NAME }}
-          HETZNER_LOCATION: ${{ vars.HETZNER_LOCATION }}
-          SERVER_TYPE: ${{ vars.SERVER_TYPE }}
-          HETZNER_SSH_KEY_NAME: ${{ vars.HETZNER_SSH_KEY_NAME }}
-          HCX_STORAGE_URL: ${{ vars.HCX_STORAGE_URL }}
-          HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
-          HCX_ACCESS_KEY: ${{ secrets.HCX_ACCESS_KEY }}
-          HCX_SECRET_KEY: ${{ secrets.HCX_SECRET_KEY }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          missing=()
-          [ -z "${SERVER_NAME:-}" ] && missing+=("vars.SERVER_NAME")
-          [ -z "${HETZNER_LOCATION:-}" ] && missing+=("vars.HETZNER_LOCATION")
-          [ -z "${SERVER_TYPE:-}" ] && missing+=("vars.SERVER_TYPE")
-          [ -z "${HETZNER_SSH_KEY_NAME:-}" ] && missing+=("vars.HETZNER_SSH_KEY_NAME")
-          [ -z "${HCX_STORAGE_URL:-}" ] && missing+=("vars.HCX_STORAGE_URL")
-          [ -z "${HETZNER_API_TOKEN:-}" ] && missing+=("secrets.HETZNER_API_TOKEN")
-          [ -z "${HCX_ACCESS_KEY:-}" ] && missing+=("secrets.HCX_ACCESS_KEY")
-          [ -z "${HCX_SECRET_KEY:-}" ] && missing+=("secrets.HCX_SECRET_KEY")
-          [ -z "${SSH_PRIVATE_KEY:-}" ] && missing+=("secrets.SSH_PRIVATE_KEY")
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Environment '${{ github.event.inputs.environment }}' is missing required configuration:"
-            printf '  - %s\n' "${missing[@]}"
-            echo "Configure at: https://github.com/DarojaAI/mcp-tooling/settings/environments/${{ github.event.inputs.environment }}"
-            exit 1
-          fi
-          echo "[DEPLOY] Environment preflight OK for ${{ github.event.inputs.environment }}"
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keygen -y -f ~/.ssh/id_ed25519 > ~/.ssh/id_ed25519.pub
-          chmod 644 ~/.ssh/id_ed25519.pub
-          eval $(ssh-agent -s)
-          ssh-add ~/.ssh/id_ed25519
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform Init
-        id: init
-        run: |
-          ENV="${{ github.event.inputs.environment }}"
-          cd ${{ env.TERRAFORM_DIR }}
-          terraform init -input=false \
-            -backend-config="endpoint=${{ vars.HCX_STORAGE_URL }}" \
-            -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" \
-            -backend-config="region=fra1" \
-            -backend-config="access_key=${{ secrets.HCX_ACCESS_KEY }}" \
-            -backend-config="secret_key=${{ secrets.HCX_SECRET_KEY }}" \
-            -backend-config="key=${{ vars.TERRAFORM_STATE_KEY }}" \
-            -backend-config="skip_credentials_validation=true" \
-            -backend-config="skip_metadata_api_check=true" \
-            -backend-config="skip_region_validation=true" \
-            -backend-config="skip_requesting_account_id=true" \
-            -backend-config="use_path_style=true"
-
-      - name: Build Terraform vars
-        id: build_vars
-        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
-        run: |
-          SERVER_NAME="${{ vars.SERVER_NAME }}"
-          VARS="-var=hcloud_token=${{ secrets.HETZNER_API_TOKEN }}"
-          VARS="$VARS -var=server_name=$SERVER_NAME"
-          VARS="$VARS -var=location=${{ vars.HETZNER_LOCATION }}"
-          VARS="$VARS -var=server_type=${{ vars.SERVER_TYPE }}"
-          VARS="$VARS -var=hetzner_ssh_key_name=${{ vars.HETZNER_SSH_KEY_NAME }}"
-          VARS="$VARS -var=environment=${{ github.event.inputs.environment }}"
-          echo "TF_VARS=$VARS" >> $GITHUB_ENV
-          echo "SERVER_NAME=$SERVER_NAME" >> $GITHUB_ENV
-
-      - name: Safety check (server name vs state)
-        id: safety_check
-        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
-        run: |
-          cd ${{ env.TERRAFORM_DIR }}
-          TERRAFORM_OUTPUT=$(terraform show -json 2>/dev/null || echo '{}')
-          if echo "$TERRAFORM_OUTPUT" | grep -q "hcloud_server.main\|hcloud_server.this"; then
-            STATE_NAME=$(echo "$TERRAFORM_OUTPUT" | jq -r \
-              'try (if . == null then {} else . end
-                | (.values // {})
-                | (.root_module.resources // [])
-                | .[] | select(.type == "hcloud_server")
-                | .instances[].attributes.name // empty) catch ""')
-            if [ -n "$STATE_NAME" ] && [ "$STATE_NAME" != "$SERVER_NAME" ]; then
-              echo "ERROR: State has '$STATE_NAME', environment wants '$SERVER_NAME'. Run destroy first."
-              exit 1
-            fi
-          fi
-          echo "safe=true" >> $GITHUB_OUTPUT
-
-      - name: Terraform Plan
-        id: plan
-        if: >
-          (github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply') &&
-          steps.safety_check.outputs.safe == 'true'
-        run: |
-          cd ${{ env.TERRAFORM_DIR }}
-          terraform plan -input=false $TF_VARS
-
-      - name: Terraform Apply
-        id: apply
-        if: >
-          github.event.inputs.action == 'apply' &&
-          steps.safety_check.outputs.safe == 'true'
-        run: |
-          cd ${{ env.TERRAFORM_DIR }}
-          command -v hcloud &>/dev/null || (sudo apt-get update && sudo apt-get install -y hcloud-cli)
-          export HCLOUD_TOKEN=*** secrets.HETZNER_API_TOKEN }}
-
-          # Idempotent: skip hcloud check if terraform state already has the server
-          if terraform state show module.vm.hcloud_server.main >/dev/null 2>&1; then
-            echo "Server already in Terraform state"
-          else
-            # Check if server exists in Hetzner but not in state
-            SERVER_ID=$(hcloud server list -o json 2>/dev/null \
-              | jq -r 'if . == null then [] else . end
-                       | .[] | select(.name == "'"$SERVER_NAME"'") | .id // empty')
-            if [ -n "$SERVER_ID" ]; then
-              echo "Server exists in Hetzner but not in state - importing..."
-              terraform import $TF_VARS module.vm.hcloud_server.main "$SERVER_ID" || echo "Import failed - continuing to apply..."
-            fi
-          fi
-
-          set +e
-          APPLY_OUTPUT=$(terraform apply -input=false -auto-approve $TF_VARS 2>&1)
-          APPLY_EXIT=$?
-          set -e
-          echo "$APPLY_OUTPUT"
-
-          if [ $APPLY_EXIT -ne 0 ]; then
-            if echo "$APPLY_OUTPUT" | grep -q "Apply complete\|No changes\."; then
-              echo "Apply completed (no changes needed)"
-              APPLY_EXIT=0
-            else
-              echo "ERROR: Terraform apply failed with exit code $APPLY_EXIT"
-              exit 1
-            fi
-          fi
-
-          # Decide whether to deploy
-          if [ "${{ github.event.inputs.force }}" == "true" ]; then
-            echo "Force deploy enabled"
-            echo "deployed=true" >> $GITHUB_OUTPUT
-          elif echo "$APPLY_OUTPUT" | grep -q "No changes\."; then
-            if git rev-parse HEAD~1 >/dev/null 2>&1; then
-              if git diff --name-only HEAD~1 HEAD | grep -qE "runtime/|servers/|scripts/deploy/|pyproject.toml"; then
-                echo "Code changes detected -- running deployment"
-                echo "deployed=true" >> $GITHUB_OUTPUT
-              else
-                echo "No changes to deploy"
-                echo "deployed=false" >> $GITHUB_OUTPUT
-              fi
-            else
-              echo "No git history available - skipping deploy"
-              echo "deployed=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "Terraform made changes -- running deployment"
-            echo "deployed=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Destroy server
-        if: github.event.inputs.action == 'destroy'
-        run: |
-          cd ${{ env.TERRAFORM_DIR }}
-          command -v hcloud &>/dev/null || (sudo apt-get update && sudo apt-get install -y hcloud-cli)
-          export HCLOUD_TOKEN=*** secrets.HETZNER_API_TOKEN }}
-
-          SERVER_NAME="${{ vars.SERVER_NAME }}"
-          SERVER_ID=$(hcloud server list -o json 2>/dev/null | jq -r 'if . == null then [] else . end | .[] | select(.name == "'"$SERVER_NAME"'") | .id // empty')
-          if [ -n "$SERVER_ID" ]; then
-            echo "Deleting server: $SERVER_NAME ($SERVER_ID)"
-            hcloud server delete "$SERVER_ID"
-          fi
-
-          # Clean state so next apply starts fresh
-          echo "Removing module.vm.hcloud_server.main from Terraform state..."
-          terraform state rm module.vm.hcloud_server.main 2>/dev/null || echo "State already clean"
-
-      - name: Set outputs for apply
-        if: github.event.inputs.action == 'apply'
-        id: outputs
-        run: |
-          cd ${{ env.TERRAFORM_DIR }}
-          export HCLOUD_TOKEN=*** secrets.HETZNER_API_TOKEN }}
-
-          IP=$(hcloud server list -o json \
-            | jq -r 'try (if . == null then [] else . end | .[] | select(.name == "'"$SERVER_NAME"'") | .public_net.ipv4.ip // .ipv4 // empty) catch ""')
-          if [ -z "$IP" ]; then
-            SERVER_ID=$(terraform output -raw server_id 2>/dev/null || echo "")
-            if [ -n "$SERVER_ID" ]; then
-              IP=$(hcloud server describe "$SERVER_ID" -o json 2>/dev/null \
-                | jq -r '.public_net.ipv4.ip // .ipv4 // empty')
-            fi
-          fi
-          if [ -z "$IP" ]; then
-            IP=$(terraform output -raw ipv4_address) || (echo "ERROR: Failed to get server IP" && exit 1)
-          fi
-          [ -z "$IP" ] && (echo "ERROR: Server IP is empty" && exit 1)
-          echo "server_name=$SERVER_NAME" >> $GITHUB_OUTPUT
-          echo "server_ip=$IP" >> $GITHUB_OUTPUT
-          echo "$SERVER_NAME" > server-name.txt
-          echo "$IP" > server-ip.txt
-
-      - name: Upload server info
-        if: github.event.inputs.action == 'apply'
-        uses: actions/upload-artifact@v7
-        with:
-          name: server-info
-          path: |
-            ${{ env.TERRAFORM_DIR }}/server-ip.txt
-            ${{ env.TERRAFORM_DIR }}/server-name.txt
+  apply:
+    name: "Terraform ${{ inputs.action }}"
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@feat/reusable-hetzner-deploy
+    with:
+      action: ${{ inputs.action }}
+      environment: ${{ inputs.environment }}
+      force: ${{ inputs.force == 'true' }}
+      tf_state_bucket: ${{ vars.TERRAFORM_STATE_BUCKET }}
+      tf_state_key: ${{ vars.TERRAFORM_STATE_KEY }}
+      hcx_storage_url: ${{ vars.HCX_STORAGE_URL }}
+      server_name: ${{ vars.SERVER_NAME }}
+      server_type: ${{ vars.SERVER_TYPE }}
+      location: ${{ vars.HETZNER_LOCATION }}
+      hetzner_ssh_key_name: ${{ vars.HETZNER_SSH_KEY_NAME }}
+    secrets:
+      HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+      HCX_ACCESS_KEY: ${{ secrets.HCX_ACCESS_KEY }}
+      HCX_SECRET_KEY: ${{ secrets.HCX_SECRET_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
   deploy:
-    name: Deploy Duffel Server
-    needs: terraform
-    if: github.event.inputs.action == 'apply' && needs.terraform.outputs.deployed == 'true' && ! failure()
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-
-      - name: Download server info
-        uses: actions/download-artifact@v8
-        with:
-          name: server-info
-          path: ${{ env.TERRAFORM_DIR }}/
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
-
-      - name: Get server info
-        id: info
-        run: |
-          SERVER_NAME=$(cat ${{ env.TERRAFORM_DIR }}/server-name.txt 2>/dev/null) || (echo "ERROR: server-name.txt not found" && exit 1)
-          IP=$(cat ${{ env.TERRAFORM_DIR }}/server-ip.txt 2>/dev/null) || (echo "ERROR: server-ip.txt not found" && exit 1)
-          [ -z "$SERVER_NAME" ] && (echo "ERROR: SERVER_NAME is empty" && exit 1)
-          [ -z "$IP" ] && (echo "ERROR: IP is empty" && exit 1)
-          echo "SERVER_NAME=$SERVER_NAME" >> $GITHUB_ENV
-          echo "SERVER_IP=$IP" >> $GITHUB_ENV
-
-      - name: Wait for SSH
-        run: |
-          for i in {1..30}; do
-            if nc -z -w5 $SERVER_IP 22 2>/dev/null; then
-              echo "SSH is ready!"
-              exit 0
-            fi
-            echo "Attempt $i/30 - SSH not ready, waiting 10s..."
-            sleep 10
-          done
-          echo "SSH did not become ready in time"
-          exit 1
-
-      - name: Sync code to VM
-        run: |
-          # Sync the source tree (skip tests, terraform state, .git internals)
-          rsync -avz --delete \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='terraform/.terraform/' \
-            --exclude='tests/' \
-            --exclude='__pycache__/' \
-            --exclude='*.pyc' \
-            -e "ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519" \
-            ./ root@$SERVER_IP:/opt/mcp-tooling/
-
-      - name: Install runtime on VM
-        env:
-          DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
-          MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 root@$SERVER_IP \
-            "DUFFEL_API_KEY='$DUFFEL_API_KEY' MCPTOOLING_ALLOWED_TOKENS='$MCPTOOLING_ALLOWED_TOKENS' \
-             bash -s" < scripts/deploy/install-vm.sh
-
-      - name: Verify health
-        run: |
-          for i in {1..20}; do
-            if curl -fsS http://$SERVER_IP:8765/healthz > /dev/null; then
-              echo "✅ Server is healthy"
-              curl -sS http://$SERVER_IP:8765/healthz | python3 -m json.tool
-              exit 0
-            fi
-            echo "Attempt $i/20 - not healthy yet, waiting 5s..."
-            sleep 5
-          done
-          echo "ERROR: Server did not become healthy"
-          exit 1
+    name: Deploy to ${{ vars.SERVER_NAME }}
+    needs: apply
+    if: inputs.action == 'apply' && needs.apply.outputs.deployed == 'true'
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@feat/reusable-hetzner-deploy
+    with:
+      server_ip: ${{ needs.apply.outputs.server_ip }}
+      server_name: ${{ needs.apply.outputs.server_name }}
+      remote_path: /opt/mcp-tooling
+      install_script: scripts/deploy/install-vm.sh
+      health_endpoint: /healthz
+      health_port: 8765
+      forward_secrets: DUFFEL_API_KEY,MCPTOOLING_ALLOWED_TOKENS
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
+      MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}

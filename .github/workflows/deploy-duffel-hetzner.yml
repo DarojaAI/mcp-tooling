@@ -45,6 +45,7 @@ on:
 jobs:
   apply:
     name: "Terraform ${{ inputs.action }}"
+    environment: ${{ inputs.environment }}
     uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@main
     with:
       action: ${{ inputs.action }}

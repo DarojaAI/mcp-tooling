@@ -90,10 +90,12 @@ def main():
     unused_required_secrets = required_secrets - all_secrets_used
 
     if unused_required_vars:
-        errors.append(f"⚠️  Contract declares required vars not used by workflows: {', '.join(sorted(unused_required_vars))}")
+        errors.append(f"⚠️  Contract declares required vars not used by workflows: {len(unused_required_vars)} (redacted)")
 
     if unused_required_secrets:
-        errors.append(f"⚠️  Contract declares required secrets not used by workflows: {', '.join(sorted(unused_required_secrets))}")
+        # Do not log the names of unused required secrets — CodeQL flags it
+        # as clear-text logging of sensitive data. Just report the count.
+        errors.append(f"⚠️  Contract declares required secrets not used by workflows: {len(unused_required_secrets)} (redacted)")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

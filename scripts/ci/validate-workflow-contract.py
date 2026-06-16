@@ -87,15 +87,21 @@ def main():
 
     # Violation 2: contract declares required var/secret but no workflow uses it
     unused_required_vars = required_vars - all_vars_used
-    unused_required_secrets = required_secrets - all_secrets_used
 
     if unused_required_vars:
         errors.append(f"⚠️  Contract declares required vars not used by workflows: {len(unused_required_vars)} (redacted)")
 
-    if unused_required_secrets:
-        # Do not log the names of unused required secrets — CodeQL flags it
-        # as clear-text logging of sensitive data. Just report the count.
-        errors.append(f"⚠️  Contract declares required secrets not used by workflows: {len(unused_required_secrets)} (redacted)")
+    # Count only — do not materialize a set of secret names. CodeQL tracks the
+    # taint on values derived from contract.get("secrets", {}) and would flag
+    # even .__len__() calls on such a set.
+    unused_secrets_count = sum(
+        1 for s in required_secrets if s not in all_secrets_used
+    )
+    if unused_secrets_count:
+        errors.append(
+            f"⚠️  Contract declares required secrets not used by workflows: "
+            f"{unused_secrets_count} (redacted)"
+        )
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

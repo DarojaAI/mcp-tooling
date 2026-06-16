@@ -58,6 +58,7 @@ jobs:
       location: ${{ steps.resolve.outputs.location }}
       hetzner_ssh_key_name: ${{ steps.resolve.outputs.hetzner_ssh_key_name }}
       hcx_storage_url: ${{ steps.resolve.outputs.hcx_storage_url }}
+      hcx_region: ${{ steps.resolve.outputs.hcx_region }}
     steps:
       - name: Resolve env vars
         id: resolve
@@ -75,6 +76,7 @@ jobs:
           [ -z "${LOCATION:-}" ] && missing+=("HETZNER_LOCATION")
           [ -z "${HETZNER_SSH_KEY_NAME:-}" ] && missing+=("HETZNER_SSH_KEY_NAME")
           [ -z "${HCX_STORAGE_URL:-}" ] && missing+=("HCX_STORAGE_URL")
+          [ -z "${HCX_REGION:-}" ] && missing+=("HCX_REGION (could not extract from HCX_STORAGE_URL)")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Environment '${{ inputs.environment }}' is missing required vars:"
             printf '  - %s\n' "${missing[@]}"
@@ -85,6 +87,9 @@ jobs:
           echo "location=${LOCATION}" >> "$GITHUB_OUTPUT"
           echo "hetzner_ssh_key_name=${HETZNER_SSH_KEY_NAME}" >> "$GITHUB_OUTPUT"
           echo "hcx_storage_url=${HCX_STORAGE_URL}" >> "$GITHUB_OUTPUT"
+          # Extract region from HCX storage URL (e.g., "hel1" from "https://hel1.your-objectstorage.com/")
+          HCX_REGION=$(echo "${HCX_STORAGE_URL}" | sed -E "s|https?://([a-z0-9]+)\..*|\1|")
+          echo "hcx_region=${HCX_REGION}" >> "$GITHUB_OUTPUT"
 
   apply:
     name: "Terraform ${{ inputs.action }}"
@@ -96,6 +101,7 @@ jobs:
       force: ${{ inputs.force == 'true' }}
       repo_name: mcp-tooling
       hcx_storage_url: ${{ needs.setup.outputs.hcx_storage_url }}
+      hcx_region: ${{ needs.setup.outputs.hcx_region }}
       server_name: ${{ needs.setup.outputs.server_name }}
       server_type: ${{ needs.setup.outputs.server_type }}
       location: ${{ needs.setup.outputs.location }}

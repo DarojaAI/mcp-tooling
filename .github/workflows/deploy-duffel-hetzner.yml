@@ -94,7 +94,7 @@ jobs:
   apply:
     name: "Terraform ${{ inputs.action }}"
     needs: setup
-    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@main
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@00aad1cd61
     with:
       action: ${{ inputs.action }}
       environment: ${{ inputs.environment }}

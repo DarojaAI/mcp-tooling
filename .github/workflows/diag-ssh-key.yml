@@ -1,4 +1,4 @@
-name: Diagnostic - SSH Key Fingerprint
+name: Diagnostic - SSH Key Contents
 
 on:
   workflow_dispatch:
@@ -7,19 +7,25 @@ permissions:
   contents: read
 
 jobs:
-  fingerprint:
-    name: Print SSH_PRIVATE_KEY fingerprint
+  contents:
+    name: Inspect SSH_PRIVATE_KEY as written by deploy reusable
     runs-on: ubuntu-latest
     environment: prod
     steps:
-      - name: Setup SSH key from secret
+      - name: Reproduce deploy's key write
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/probe_key
-          chmod 600 ~/.ssh/probe_key
-          echo "=== fingerprint of SSH_PRIVATE_KEY ==="
-          ssh-keygen -lf ~/.ssh/probe_key
-          echo "=== public key (for visual comparison) ==="
-          ssh-keygen -y -f ~/.ssh/probe_key
-          rm -f ~/.ssh/probe_key
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/repro_key
+          chmod 600 ~/.ssh/repro_key
+          echo "=== file size ==="
+          wc -c ~/.ssh/repro_key
+          echo "=== file lines ==="
+          wc -l ~/.ssh/repro_key
+          echo "=== first 3 lines (literal) ==="
+          head -3 ~/.ssh/repro_key | cat -A
+          echo "=== fingerprint ==="
+          ssh-keygen -lf ~/.ssh/repro_key 2>&1 || echo "(fingerprint parse failed)"
+          echo "=== try ssh-keygen parse as openssh ==="
+          ssh-keygen -y -f ~/.ssh/repro_key 2>&1 | head -3

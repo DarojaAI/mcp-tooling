@@ -1,0 +1,28 @@
+name: Mirror of deploy reusable (for diag)
+
+on:
+  workflow_call:
+    inputs:
+      ssh_key:
+        description: SSH private key (passed as input instead of secret)
+        required: false
+        type: string
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Mirror deploy setup (env block)
+        env:
+          FROM_SECRET: ${{ secrets.SSH_PRIVATE_KEY }}
+          FROM_INPUT: ${{ inputs.ssh_key }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "FROM_SECRET (first 30): $(echo "$FROM_SECRET" | head -c 30)..."
+          echo "FROM_INPUT (first 30): $(echo "$FROM_INPUT" | head -c 30)..."
+          echo "FROM_SECRET bytes: ${#FROM_SECRET}"
+          echo "FROM_INPUT bytes: ${#FROM_INPUT}"

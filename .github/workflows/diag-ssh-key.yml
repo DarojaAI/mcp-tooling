@@ -33,9 +33,3 @@ jobs:
     uses: ./.github/workflows/diag-reusable-mirror.yml
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-
-  reusable_input:
-    name: Reusable with input
-    uses: ./.github/workflows/diag-reusable-mirror.yml
-    with:
-      ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}

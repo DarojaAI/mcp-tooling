@@ -8,24 +8,36 @@ permissions:
 
 jobs:
   contents:
-    name: Inspect SSH_PRIVATE_KEY as written by deploy reusable
+    name: Compare key write patterns
     runs-on: ubuntu-latest
     environment: prod
     steps:
-      - name: Reproduce deploy's key write
+      - name: Compare key write patterns
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/repro_key
-          chmod 600 ~/.ssh/repro_key
-          echo "=== file size ==="
-          wc -c ~/.ssh/repro_key
-          echo "=== file lines ==="
-          wc -l ~/.ssh/repro_key
-          echo "=== first 3 lines (literal) ==="
-          head -3 ~/.ssh/repro_key | cat -A
-          echo "=== fingerprint ==="
-          ssh-keygen -lf ~/.ssh/repro_key 2>&1 || echo "(fingerprint parse failed)"
-          echo "=== try ssh-keygen parse as openssh ==="
-          ssh-keygen -y -f ~/.ssh/repro_key 2>&1 | head -3
+          # Test 1: printf '%s\n' (the new deploy pattern)
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/key_via_printf
+          chmod 600 ~/.ssh/key_via_printf
+          echo "=== printf file size ==="
+          wc -c ~/.ssh/key_via_printf
+          echo "=== printf fingerprint ==="
+          ssh-keygen -lf ~/.ssh/key_via_printf 2>&1
+          echo "=== printf public key ==="
+          ssh-keygen -y -f ~/.ssh/key_via_printf 2>&1
+          echo ""
+          # Test 2: echo (the OLD deploy pattern)
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/key_via_echo
+          chmod 600 ~/.ssh/key_via_echo
+          echo "=== echo file size ==="
+          wc -c ~/.ssh/key_via_echo
+          echo "=== echo fingerprint ==="
+          ssh-keygen -lf ~/.ssh/key_via_echo 2>&1
+          echo "=== echo public key ==="
+          ssh-keygen -y -f ~/.ssh/key_via_echo 2>&1
+          echo ""
+          # Test 3: try actually using the printf key to ssh
+          echo "=== try ssh with printf key ==="
+          ssh-keyscan -H 89.167.4.143 >> ~/.ssh/known_hosts 2>/dev/null
+          timeout 10 ssh -i ~/.ssh/key_via_printf -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes root@89.167.4.143 'echo ALIVE' 2>&1 | head

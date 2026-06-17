@@ -1,4 +1,4 @@
-name: Diag - SSH key in deploy-like reusable call
+name: Diag - SSH key direct vs reusable
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   direct:
-    name: Direct SSH key setup (no reusable)
+    name: Direct (no reusable)
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -20,22 +20,22 @@ jobs:
           printf '%s\n' "$MY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H 89.167.4.143 >> ~/.ssh/known_hosts 2>/dev/null
-          echo "=== env block ==="
-          echo "MY_SSH_KEY (first 30 chars): $(echo "$MY_SSH_KEY" | head -c 30)..."
+          echo "=== direct ==="
           wc -c ~/.ssh/id_ed25519
-          ssh-keygen -lf ~/.ssh/id_ed25519
+          ssh-keygen -lf ~/.ssh/id_ed25519 2>&1
           echo "=== rsync ==="
           rsync -avz --delete \
             -e "ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519" \
-            ./dummy root@89.167.4.143:/tmp/test_reusable/ 2>&1 | head -5 || echo "rsync returned $?"
-  reusable:
-    name: Via reusable workflow call
+            ./dummy root@89.167.4.143:/tmp/test_direct/ 2>&1 | head -5 || echo "rsync returned $?"
+
+  reusable_secret:
+    name: Reusable with secrets block
     uses: ./.github/workflows/diag-reusable-mirror.yml
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
-  reusable_no_secret:
-    name: Via reusable with input instead of secret
+  reusable_input:
+    name: Reusable with input
     uses: ./.github/workflows/diag-reusable-mirror.yml
     with:
       ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}

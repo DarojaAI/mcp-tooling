@@ -119,6 +119,7 @@ jobs:
     with:
       server_ip: ${{ needs.apply.outputs.server_ip }}
       server_name: ${{ needs.setup.outputs.server_name }}
+      environment: ${{ inputs.environment }}
       remote_path: /opt/mcp-tooling
       install_script: scripts/deploy/install-vm.sh
       health_endpoint: /healthz

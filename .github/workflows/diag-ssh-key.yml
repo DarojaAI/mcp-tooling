@@ -1,4 +1,4 @@
-name: Diagnostic - SSH Key Contents
+name: Diag - SSH key in deploy-like reusable call
 
 on:
   workflow_dispatch:
@@ -7,39 +7,35 @@ permissions:
   contents: read
 
 jobs:
-  contents:
-    name: Reproduce checkout+setup+rsync exactly
+  direct:
+    name: Direct SSH key setup (no reusable)
     runs-on: ubuntu-latest
     environment: prod
     steps:
-      - name: Reproduce checkout + setup exactly
+      - name: Direct ssh key setup
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          MY_SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          # Step 1: simulate actions/checkout (writes a fake key)
-          echo "FAKE_CHECKOUT_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$MY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          echo "=== after checkout (fake) ==="
-          cat ~/.ssh/id_ed25519
-          echo ""
-          # Step 2: simulate Setup SSH key (printf)
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          echo "=== after Setup SSH key ==="
-          wc -c ~/.ssh/id_ed25519
-          head -3 ~/.ssh/id_ed25519
-          echo ""
-          ssh-keygen -lf ~/.ssh/id_ed25519 2>&1
-          ssh-keygen -y -f ~/.ssh/id_ed25519 2>&1 | head -3
-          echo ""
-          # Step 3: try ssh with the actual id_ed25519
           ssh-keyscan -H 89.167.4.143 >> ~/.ssh/known_hosts 2>/dev/null
-          echo "=== try ssh with id_ed25519 ==="
-          timeout 5 ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 root@89.167.4.143 'echo ALIVE' 2>&1
-          echo ""
-          echo "=== try rsync with id_ed25519 ==="
-          mkdir -p /tmp/dummy_dir && touch /tmp/dummy_dir/dummy.txt
+          echo "=== env block ==="
+          echo "MY_SSH_KEY (first 30 chars): $(echo "$MY_SSH_KEY" | head -c 30)..."
+          wc -c ~/.ssh/id_ed25519
+          ssh-keygen -lf ~/.ssh/id_ed25519
+          echo "=== rsync ==="
           rsync -avz --delete \
             -e "ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519" \
-            /tmp/dummy_dir/ root@89.167.4.143:/tmp/dummy_test/ 2>&1 | head -10
+            ./dummy root@89.167.4.143:/tmp/test_reusable/ 2>&1 | head -5 || echo "rsync returned $?"
+  reusable:
+    name: Via reusable workflow call
+    uses: ./.github/workflows/diag-reusable-mirror.yml
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+  reusable_no_secret:
+    name: Via reusable with input instead of secret
+    uses: ./.github/workflows/diag-reusable-mirror.yml
+    with:
+      ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}

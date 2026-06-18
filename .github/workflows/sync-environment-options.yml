@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   sync:
-    uses: DarojaAI/infra-actions/.github/workflows/reusable-sync-environment-options.yml@v1.19.12
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-sync-environment-options.yml@v1.24.4
     with:
       workflow-files: |
         .github/workflows/deploy-duffel-hetzner.yml

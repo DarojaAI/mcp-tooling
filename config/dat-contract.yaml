@@ -30,20 +30,11 @@ deploy_env_vars:
     required: true
 
   hcx_storage_url:
-    description: "S3-compatible endpoint for Terraform state (e.g., s3.us-west-1.amazonaws.com)"
+    description: "Hetzner Object Storage endpoint URL (e.g., https://hel1.your-objectstorage.com/)"
     github_var: "HCX_STORAGE_URL"
     required: true
-
-  terraform_state_bucket:
-    description: "S3 bucket name for Terraform state"
-    github_var: "TERRAFORM_STATE_BUCKET"
-    required: true
-
-  terraform_state_key:
-    description: "S3 key path for Terraform state file"
-    github_var: "TERRAFORM_STATE_KEY"
-    required: true
-    default: "mcp-tooling/duffel/terraform.tfstate"
+  # Note: Terraform state bucket + key are derived inside the infra-actions
+  # reusable from `repo_name` and `hcx_storage_url`; no env vars required here.
 
 # ── secrets ──
 # GitHub Actions secrets (not environment variables)

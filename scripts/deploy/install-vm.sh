@@ -64,7 +64,9 @@ MCPTOOLING_ALLOWED_TOKENS=${MCPTOOLING_ALLOWED_TOKENS}
 MCPTOOLING_CONFIRM_BOOKING=${MCPTOOLING_CONFIRM_BOOKING:-false}
 MCPTOOLING_CONFIRM_DESTRUCTIVE=${MCPTOOLING_CONFIRM_DESTRUCTIVE:-false}
 EOF
-chmod 600 "${SECRETS_FILE}"
+# Mode 640: root writes/manages, mcptooling (group) can read at runtime.
+# 600 would lock out the systemd service, which runs as the unprivileged user.
+chmod 640 "${SECRETS_FILE}"
 chown root:"${MCPTOOLING_USER}" "${SECRETS_FILE}"
 
 echo "==> Writing systemd unit"

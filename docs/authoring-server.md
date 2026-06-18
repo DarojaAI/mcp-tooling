@@ -128,11 +128,7 @@ secrets:
     required: true
 ```
 
-Then regenerate the docs:
-
-```bash
-python3 scripts/ci/generate-secrets-doc.py
-```
+Then update the rendered reference: [`docs/github-actions-secrets.md`](github-actions-secrets.md) is hand-maintained alongside the contract (no auto-generator yet).
 
 ### 7. Test locally
 
@@ -157,6 +153,6 @@ python -m servers.<name>
 
 ## Deployment
 
-See [deploy/hetzner/README.md](../deploy/hetzner/README.md) for deploying to Hetzner VMs.
+Deployment is handled by the GitHub Actions workflow [`.github/workflows/deploy-duffel-hetzner.yml`](../.github/workflows/deploy-duffel-hetzner.yml), which delegates to the shared reusables in [`DarojaAI/infra-actions`](https://github.com/DarojaAI/infra-actions) for Terraform + VM provisioning, then runs [`scripts/deploy/install-vm.sh`](../scripts/deploy/install-vm.sh) on the Hetzner VM to set up the systemd service.
 
-For other platforms (AWS, GCP), the pattern is similar: cloud-init + systemd + rsync.
+For other platforms (AWS, GCP), the pattern is similar: cloud-init + systemd + rsync. The install script is portable aside from the `apt-get` call at the top.

@@ -99,6 +99,10 @@ def run_http(registry: ToolRegistry, allowlist: Allowlist, port: int) -> None:
     Uses the official MCP SDK's streamable-http transport so the gateway
     can speak proper MCP protocol (initialize, tools/list, tools/call)
     instead of the legacy {tool, args} REST wrapper.
+
+    DNS-rebinding protection is disabled because the gateway hits this
+    server over the public network (the default FastMCP allowlist only
+    permits loopback hosts). Bearer-token auth is the real gate.
     """
     import uvicorn
 
@@ -107,6 +111,7 @@ def run_http(registry: ToolRegistry, allowlist: Allowlist, port: int) -> None:
         allowlist=allowlist,
         json_response=True,
         stateless=False,
+        disable_dns_rebinding_protection=True,
     )
     print(f"🚀 Starting Duffel MCP streamable-http server on port {port}", file=sys.stderr)
     uvicorn.run(app, host="0.0.0.0", port=port)

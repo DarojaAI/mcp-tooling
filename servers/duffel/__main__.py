@@ -12,10 +12,10 @@ import asyncio
 import sys
 
 from runtime.allowlist import Allowlist
-from runtime.http_server import create_app
 from runtime.registry import ToolRegistry
 from runtime.secrets import load_secrets
 from runtime.stdio_server import start_stdio_server
+from runtime.streamable_http_server import create_streamable_http_app
 from servers.duffel.client import DuffelClient
 from servers.duffel.tools import (
     BookFlightTool,
@@ -94,11 +94,21 @@ def setup() -> tuple[ToolRegistry, Allowlist]:
 
 
 def run_http(registry: ToolRegistry, allowlist: Allowlist, port: int) -> None:
-    """Run the HTTP server (synchronous entrypoint for uvicorn)."""
+    """Run the HTTP server (synchronous entrypoint for uvicorn).
+
+    Uses the official MCP SDK's streamable-http transport so the gateway
+    can speak proper MCP protocol (initialize, tools/list, tools/call)
+    instead of the legacy {tool, args} REST wrapper.
+    """
     import uvicorn
 
-    app = create_app(registry, allowlist=allowlist)
-    print(f"🚀 Starting Duffel MCP HTTP server on port {port}", file=sys.stderr)
+    app = create_streamable_http_app(
+        registry,
+        allowlist=allowlist,
+        json_response=True,
+        stateless=False,
+    )
+    print(f"🚀 Starting Duffel MCP streamable-http server on port {port}", file=sys.stderr)
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 

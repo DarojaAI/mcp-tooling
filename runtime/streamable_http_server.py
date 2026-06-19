@@ -17,7 +17,6 @@ effect, correct lifecycle.
 """
 
 import inspect as _inspect
-import json
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -77,7 +76,7 @@ def _register_tools(fastmcp: FastMCP, registry: ToolRegistry) -> None:
                 args = {k: v for k, v in kwargs.items() if v is not None}
                 result = await registry.call(bound_tool_name, args)
                 return str(result)
-            return handler
+            return handler  # noqa: B023
 
         handler = make_handler(tool_name)
 
@@ -165,15 +164,17 @@ def create_streamable_http_app(
 
     @app.middleware("http")
     async def allowlist_gate(request: Request, call_next):
-        if request.url.path == mcp_path or request.url.path.startswith(mcp_path + "/"):
-            if allowlist is not None:
-                auth = request.headers.get("authorization", "")
-                token = auth[7:] if auth.startswith("Bearer ") else None
-                if not allowlist.is_caller_allowed(token):
-                    return JSONResponse(
-                        status_code=403,
-                        content={"error": "Unauthorized caller"},
-                    )
+        if allowlist is not None and (
+            request.url.path == mcp_path
+            or request.url.path.startswith(mcp_path + "/")
+        ):
+            auth = request.headers.get("authorization", "")
+            token = auth[7:] if auth.startswith("Bearer ") else None
+            if not allowlist.is_caller_allowed(token):
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "Unauthorized caller"},
+                )
         return await call_next(request)
 
     @app.api_route(

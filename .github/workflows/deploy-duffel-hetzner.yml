@@ -13,19 +13,10 @@
 # Required secrets (set per GitHub environment):
 #   HETZNER_API_TOKEN, HCX_ACCESS_KEY, HCX_SECRET_KEY, SSH_PRIVATE_KEY,
 #   DUFFEL_API_KEY, MCPTOOLING_ALLOWED_TOKENS
-#   MCPTOOLING_AGENT_<NAME>_TOKEN (one per agent that needs access, e.g.
-#     MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN). The install script discovers
-#     any env var matching this pattern and appends its value to the
-#     allowlist. Forwarded by the deploy job's secrets: block — when you
-#     add a new agent, add the secret AND the corresponding line here.
 #
 # Required environment variables (set per GitHub environment):
 #   SERVER_NAME, HETZNER_LOCATION, SERVER_TYPE, HETZNER_SSH_KEY_NAME,
 #   HCX_STORAGE_URL
-#   MCPTOOLING_AGENT_BINDINGS_JSON (optional, JSON list of {agent, servers[]};
-#     when set, the install script warns about token env vars with no
-#     matching binding entry — catches typos like TRIP_PLANNING vs
-#     trip_planning)
 # =============================================================================
 
 name: Deploy Duffel to Hetzner

@@ -6,7 +6,7 @@
 # Idempotent: safe to re-run on every deploy.
 #
 # Required env vars (passed from workflow):
-#   DUFFEL_API_KEY            - Duffel API key
+#   DUFFEL_API_KEY          - Duffel API key
 #   MCPTOOLING_ALLOWED_TOKENS - Comma-separated bearer tokens for MCP clients
 #
 # Optional env vars (with defaults):
@@ -22,7 +22,6 @@ MCPTOOLING_HOME="${MCPTOOLING_HOME:-/opt/mcp-tooling}"
 MCPTOOLING_PORT="${MCPTOOLING_PORT:-8765}"
 SECRETS_DIR="/etc/mcp-tooling"
 SECRETS_FILE="${SECRETS_DIR}/secrets.env"
-AGENT_TOKEN_MAP="${SECRETS_DIR}/agent-tokens.env"
 
 if [ -z "${DUFFEL_API_KEY:-}" ]; then
   echo "ERROR: DUFFEL_API_KEY is required" >&2

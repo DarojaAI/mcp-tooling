@@ -110,7 +110,7 @@ def run_http(registry: ToolRegistry, allowlist: Allowlist, port: int) -> None:
         registry,
         allowlist=allowlist,
         json_response=True,
-        stateless=False,
+        stateless=True,
         disable_dns_rebinding_protection=True,
     )
     print(f"🚀 Starting Duffel MCP streamable-http server on port {port}", file=sys.stderr)

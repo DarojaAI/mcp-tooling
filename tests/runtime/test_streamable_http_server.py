@@ -8,8 +8,8 @@ lifespan event fires — that lifespan drives FastMCP's
 StreamableHTTPSessionManager.run().
 """
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from fastapi.testclient import TestClient
 

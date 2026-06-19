@@ -59,6 +59,7 @@ jobs:
       hetzner_ssh_key_name: ${{ steps.resolve.outputs.hetzner_ssh_key_name }}
       hcx_storage_url: ${{ steps.resolve.outputs.hcx_storage_url }}
       hcx_region: ${{ steps.resolve.outputs.hcx_region }}
+      agent_bindings_count: ${{ steps.resolve.outputs.agent_bindings_count }}
     steps:
       - name: Resolve env vars
         id: resolve
@@ -68,6 +69,7 @@ jobs:
           LOCATION: ${{ vars.HETZNER_LOCATION }}
           HETZNER_SSH_KEY_NAME: ${{ vars.HETZNER_SSH_KEY_NAME }}
           HCX_STORAGE_URL: ${{ vars.HCX_STORAGE_URL }}
+          MCPTOOLING_AGENT_BINDINGS_JSON: ${{ vars.MCPTOOLING_AGENT_BINDINGS_JSON }}
         run: |
           set -euo pipefail
           missing=()
@@ -90,6 +92,14 @@ jobs:
           HCX_REGION=$(echo "${HCX_STORAGE_URL}" | sed -E "s|https?://([a-z0-9]+)\..*|\1|")
           [ -z "${HCX_REGION:-}" ] && missing+=("HCX_REGION (could not extract from HCX_STORAGE_URL)")
           echo "hcx_region=${HCX_REGION}" >> "$GITHUB_OUTPUT"
+          # Count per-agent bindings (informational only; defaulting to 0 if unset/empty).
+          # Used by the deploy job's post-deploy step to decide whether to fetch
+          # /etc/mcp-tooling/agent-tokens.json.
+          BINDINGS_COUNT=0
+          if [ -n "${MCPTOOLING_AGENT_BINDINGS_JSON:-}" ] && [ "${MCPTOOLING_AGENT_BINDINGS_JSON}" != "[]" ]; then
+            BINDINGS_COUNT=$(printf '%s' "${MCPTOOLING_AGENT_BINDINGS_JSON}" | python3 -c "import json,sys; print(sum(len(e.get('servers', [])) for e in json.load(sys.stdin)))")
+          fi
+          echo "agent_bindings_count=${BINDINGS_COUNT}" >> "$GITHUB_OUTPUT"
 
   apply:
     name: "Terraform ${{ inputs.action }}"
@@ -124,8 +134,50 @@ jobs:
       install_script: scripts/deploy/install-vm.sh
       health_endpoint: /healthz
       health_port: 8765
-      forward_secrets: DUFFEL_API_KEY,MCPTOOLING_ALLOWED_TOKENS
+      forward_secrets: DUFFEL_API_KEY,MCPTOOLING_ALLOWED_TOKENS,MCPTOOLING_AGENT_TOKEN_SALT,MCPTOOLING_AGENT_BINDINGS_JSON
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
       MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}
+      MCPTOOLING_AGENT_TOKEN_SALT: ${{ secrets.MCPTOOLING_AGENT_TOKEN_SALT }}
+      MCPTOOLING_AGENT_BINDINGS_JSON: ${{ vars.MCPTOOLING_AGENT_BINDINGS_JSON }}
+
+  post_deploy:
+    name: Fetch per-agent tokens
+    needs: [setup, deploy]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    if: needs.setup.outputs.agent_bindings_count > 0
+    steps:
+      - name: Setup SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Fetch agent-tokens.json from VM
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 \
+            "root@${{ needs.apply.outputs.server_ip }}" \
+            "cat /etc/mcp-tooling/agent-tokens.json" \
+            > agent-tokens.json
+          # Sanity check: must be valid JSON with at least one server entry.
+          python3 -c "
+          import json
+          with open('agent-tokens.json') as f:
+              data = json.load(f)
+          assert isinstance(data, dict) and data, 'agent-tokens.json is empty'
+          for server, agents in data.items():
+              assert isinstance(agents, dict) and agents, f'no agents for {server}'
+          print(f'fetched tokens for {len(data)} server(s): {sorted(data.keys())}')
+          "
+
+      - name: Upload agent tokens artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-tokens-${{ inputs.environment }}
+          path: agent-tokens.json
+          retention-days: 30

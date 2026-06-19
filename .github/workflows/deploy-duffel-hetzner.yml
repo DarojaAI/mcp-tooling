@@ -13,10 +13,19 @@
 # Required secrets (set per GitHub environment):
 #   HETZNER_API_TOKEN, HCX_ACCESS_KEY, HCX_SECRET_KEY, SSH_PRIVATE_KEY,
 #   DUFFEL_API_KEY, MCPTOOLING_ALLOWED_TOKENS
+#   MCPTOOLING_AGENT_<NAME>_TOKEN (one per agent that needs access, e.g.
+#     MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN). The install script discovers
+#     any env var matching this pattern and appends its value to the
+#     allowlist. Forwarded by the deploy job's secrets: block — when you
+#     add a new agent, add the secret AND the corresponding line here.
 #
 # Required environment variables (set per GitHub environment):
 #   SERVER_NAME, HETZNER_LOCATION, SERVER_TYPE, HETZNER_SSH_KEY_NAME,
 #   HCX_STORAGE_URL
+#   MCPTOOLING_AGENT_BINDINGS_JSON (optional, JSON list of {agent, servers[]};
+#     when set, the install script warns about token env vars with no
+#     matching binding entry — catches typos like TRIP_PLANNING vs
+#     trip_planning)
 # =============================================================================
 
 name: Deploy Duffel to Hetzner
@@ -59,7 +68,7 @@ jobs:
       hetzner_ssh_key_name: ${{ steps.resolve.outputs.hetzner_ssh_key_name }}
       hcx_storage_url: ${{ steps.resolve.outputs.hcx_storage_url }}
       hcx_region: ${{ steps.resolve.outputs.hcx_region }}
-      agent_bindings_count: ${{ steps.resolve.outputs.agent_bindings_count }}
+      agent_tokens_configured: ${{ steps.resolve.outputs.agent_tokens_configured }}
     steps:
       - name: Resolve env vars
         id: resolve
@@ -92,14 +101,19 @@ jobs:
           HCX_REGION=$(echo "${HCX_STORAGE_URL}" | sed -E "s|https?://([a-z0-9]+)\..*|\1|")
           [ -z "${HCX_REGION:-}" ] && missing+=("HCX_REGION (could not extract from HCX_STORAGE_URL)")
           echo "hcx_region=${HCX_REGION}" >> "$GITHUB_OUTPUT"
-          # Count per-agent bindings (informational only; defaulting to 0 if unset/empty).
-          # Used by the deploy job's post-deploy step to decide whether to fetch
-          # /etc/mcp-tooling/agent-tokens.json.
-          BINDINGS_COUNT=0
+          # Comma-separated list of agent names from MCPTOOLING_AGENT_BINDINGS_JSON.
+          # Used by the post_deploy job's `if:` to decide whether to fetch
+          # /etc/mcp-tooling/agent-tokens.env. Empty string = no agents configured.
+          AGENT_NAMES=""
           if [ -n "${MCPTOOLING_AGENT_BINDINGS_JSON:-}" ] && [ "${MCPTOOLING_AGENT_BINDINGS_JSON}" != "[]" ]; then
-            BINDINGS_COUNT=$(printf '%s' "${MCPTOOLING_AGENT_BINDINGS_JSON}" | python3 -c "import json,sys; print(sum(len(e.get('servers', [])) for e in json.load(sys.stdin)))")
+            AGENT_NAMES=$(printf '%s' "${MCPTOOLING_AGENT_BINDINGS_JSON}" | python3 -c "
+import json,sys
+bindings = json.load(sys.stdin)
+agents = sorted({b.get('agent') for b in bindings if isinstance(b, dict) and b.get('agent')})
+print(','.join(agents))
+")
           fi
-          echo "agent_bindings_count=${BINDINGS_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "agent_tokens_configured=${AGENT_NAMES}" >> "$GITHUB_OUTPUT"
 
   apply:
     name: "Terraform ${{ inputs.action }}"
@@ -134,20 +148,20 @@ jobs:
       install_script: scripts/deploy/install-vm.sh
       health_endpoint: /healthz
       health_port: 8765
-      forward_secrets: DUFFEL_API_KEY,MCPTOOLING_ALLOWED_TOKENS,MCPTOOLING_AGENT_TOKEN_SALT,MCPTOOLING_AGENT_BINDINGS_JSON
+      forward_secrets: DUFFEL_API_KEY,MCPTOOLING_ALLOWED_TOKENS,MCPTOOLING_AGENT_BINDINGS_JSON,MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
       MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}
-      MCPTOOLING_AGENT_TOKEN_SALT: ${{ secrets.MCPTOOLING_AGENT_TOKEN_SALT }}
       MCPTOOLING_AGENT_BINDINGS_JSON: ${{ vars.MCPTOOLING_AGENT_BINDINGS_JSON }}
+      MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN: ${{ secrets.MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN }}
 
   post_deploy:
     name: Fetch per-agent tokens
     needs: [setup, deploy]
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
-    if: needs.setup.outputs.agent_bindings_count > 0
+    if: needs.setup.outputs.agent_tokens_configured != ''
     steps:
       - name: Setup SSH key
         env:
@@ -157,27 +171,26 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-      - name: Fetch agent-tokens.json from VM
+      - name: Fetch agent-tokens.env from VM
         run: |
           set -euo pipefail
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 \
             "root@${{ needs.apply.outputs.server_ip }}" \
-            "cat /etc/mcp-tooling/agent-tokens.json" \
-            > agent-tokens.json
-          # Sanity check: must be valid JSON with at least one server entry.
-          python3 -c "
-          import json
-          with open('agent-tokens.json') as f:
-              data = json.load(f)
-          assert isinstance(data, dict) and data, 'agent-tokens.json is empty'
-          for server, agents in data.items():
-              assert isinstance(agents, dict) and agents, f'no agents for {server}'
-          print(f'fetched tokens for {len(data)} server(s): {sorted(data.keys())}')
-          "
+            "cat /etc/mcp-tooling/agent-tokens.env" \
+            > agent-tokens.env
+          # Sanity check: must be at least one MCPTOOLING_AGENT_*_TOKEN=... line.
+          lines=$(grep -cE '^MCPTOOLING_AGENT_[^=[:space:]]+_TOKEN=.+$' agent-tokens.env || true)
+          if [ "${lines}" -lt 1 ]; then
+            echo "::error::agent-tokens.env has no MCPTOOLING_AGENT_*_TOKEN entries" >&2
+            cat agent-tokens.env >&2
+            exit 1
+          fi
+          echo "fetched ${lines} agent token(s):"
+          grep -oE '^MCPTOOLING_AGENT_[^=[:space:]]+_TOKEN' agent-tokens.env | sed 's/^/  /'
 
       - name: Upload agent tokens artifact
         uses: actions/upload-artifact@v4
         with:
           name: agent-tokens-${{ inputs.environment }}
-          path: agent-tokens.json
+          path: agent-tokens.env
           retention-days: 30

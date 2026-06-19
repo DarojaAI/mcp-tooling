@@ -18,6 +18,16 @@ build/
 
 # IDE
 .vscode/
+
+# OpenClaw runtime files (agent identity, memory, heartbeat config)
+# These live in the workspace but are not part of the repo.
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+memory/
 .idea/
 *.swp
 .DS_Store

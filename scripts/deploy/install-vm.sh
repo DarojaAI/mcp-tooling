@@ -8,6 +8,12 @@
 # Required env vars (passed from workflow):
 #   DUFFEL_API_KEY          - Duffel API key
 #   MCPTOOLING_ALLOWED_TOKENS - Comma-separated bearer tokens for MCP clients
+#                               (may already include per-agent derived tokens
+#                               from a previous merge step)
+#
+# Optional env vars for per-agent token minting (both required together):
+#   MCPTOOLING_AGENT_TOKEN_SALT    - HMAC salt for deriving per-agent tokens
+#   MCPTOOLING_AGENT_BINDINGS_JSON - JSON list of {agent, servers[]} entries
 #
 # Optional env vars (with defaults):
 #   MCPTOOLING_PORT         - HTTP port (default: 8765)
@@ -53,6 +59,49 @@ echo "==> Installing Python dependencies"
 sudo -u "${MCPTOOLING_USER}" python3 -m venv "${MCPTOOLING_HOME}/.venv"
 sudo -u "${MCPTOOLING_USER}" "${MCPTOOLING_HOME}/.venv/bin/pip" install --upgrade pip wheel
 sudo -u "${MCPTOOLING_USER}" "${MCPTOOLING_HOME}/.venv/bin/pip" install "${MCPTOOLING_HOME}"
+
+# Per-agent token minting. If BOTH the salt and the bindings JSON are
+# set, mint one HMAC-SHA256 token per (server, agent) pair and merge
+# them into MCPTOOLING_ALLOWED_TOKENS. Otherwise leave the global
+# tokens list untouched (backwards compatible).
+#
+# Done AFTER venv setup so we can use the venv's python interpreter
+# (matches how the server itself runs).
+if [ -n "${MCPTOOLING_AGENT_TOKEN_SALT:-}" ] && [ -n "${MCPTOOLING_AGENT_BINDINGS_JSON:-}" ]; then
+  echo "==> Minting per-agent bearer tokens from MCPTOOLING_AGENT_BINDINGS_JSON"
+  MERGED=$(MCPTOOLING_AGENT_TOKEN_SALT="${MCPTOOLING_AGENT_TOKEN_SALT}" \
+           MCPTOOLING_AGENT_BINDINGS_JSON="${MCPTOOLING_AGENT_BINDINGS_JSON}" \
+           MCPTOOLING_ALLOWED_TOKENS="${MCPTOOLING_ALLOWED_TOKENS}" \
+           "${MCPTOOLING_HOME}/.venv/bin/python" \
+           "${MCPTOOLING_HOME}/scripts/ci/render-agent-tokens.py" \
+           --out-merged-env 2>&1) || {
+    echo "ERROR: failed to mint per-agent tokens (see above)" >&2
+    exit 1
+  }
+  # Extract the MCPTOOLING_ALLOWED_TOKENS=... line from the helper output.
+  NEW_TOKENS=$(echo "${MERGED}" | grep -E '^MCPTOOLING_ALLOWED_TOKENS=' | head -1 | cut -d= -f2-)
+  if [ -z "${NEW_TOKENS}" ]; then
+    echo "ERROR: render-agent-tokens.py did not emit MCPTOOLING_ALLOWED_TOKENS" >&2
+    exit 1
+  fi
+  MCPTOOLING_ALLOWED_TOKENS="${NEW_TOKENS}"
+  echo "==> Per-agent tokens merged; allowlist size = $(echo "${MCPTOOLING_ALLOWED_TOKENS}" | tr ',' '\n' | wc -l)"
+
+  # Write the per-agent token JSON artifact so the gateway (linux-desktop-seed)
+  # can pull it via SSH and wire per-agent Authorization headers into each
+  # agent's openclaw config. Same mode as secrets.env (root:mcptooling 0640).
+  echo "==> Writing per-agent token map to ${SECRETS_DIR}/agent-tokens.json"
+  MCPTOOLING_AGENT_TOKEN_SALT="${MCPTOOLING_AGENT_TOKEN_SALT}" \
+  MCPTOOLING_AGENT_BINDINGS_JSON="${MCPTOOLING_AGENT_BINDINGS_JSON}" \
+  MCPTOOLING_ALLOWED_TOKENS="${MCPTOOLING_ALLOWED_TOKENS}" \
+  "${MCPTOOLING_HOME}/.venv/bin/python" \
+  "${MCPTOOLING_HOME}/scripts/ci/render-agent-tokens.py" \
+  --out-agent-json "${SECRETS_DIR}/agent-tokens.json"
+  chmod 640 "${SECRETS_DIR}/agent-tokens.json"
+  chown root:"${MCPTOOLING_USER}" "${SECRETS_DIR}/agent-tokens.json"
+elif [ -n "${MCPTOOLING_AGENT_TOKEN_SALT:-}" ] || [ -n "${MCPTOOLING_AGENT_BINDINGS_JSON:-}" ]; then
+  echo "WARNING: only one of MCPTOOLING_AGENT_TOKEN_SALT / MCPTOOLING_AGENT_BINDINGS_JSON is set; skipping per-agent token minting" >&2
+fi
 
 echo "==> Writing secrets file"
 mkdir -p "${SECRETS_DIR}"

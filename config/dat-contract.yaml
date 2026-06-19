@@ -2,6 +2,23 @@
 # Single source of truth for environment variable names used across
 # the deploy pipeline. All scripts MUST read from this file.
 
+# ── agent_mcp_bindings (per-agent MCP server allowlist) ──
+# Which agents are allowed to call which MCP servers. Mirrors the
+# linux-desktop-seed PR #908 binding map (the gateway reads the same
+# shape on its side, so adding an agent here + a server wiring there
+# enables end-to-end access).
+#
+# Two entry kinds:
+#   {"agent": "<id>",  "servers": ["<server>"]}  # explicit per-agent
+#   {"agent": "*",     "servers": ["<server>"]}  # default for any agent
+#
+# At deploy time, scripts/ci/render-agent-tokens.py expands these into
+# one HMAC-SHA256 derived bearer token per (server, agent) pair and
+# appends them to MCPTOOLING_ALLOWED_TOKENS, plus writes a JSON map
+# to /etc/mcp-tooling/agent-tokens.json for the gateway to consume.
+# Declared as `agent_mcp_bindings_json` under deploy_env_vars so the
+# workflow contract validator picks it up.
+
 # ── deploy_env_vars ──
 # Used by GitHub Actions deploy workflow and Terraform.
 
@@ -36,6 +53,15 @@ deploy_env_vars:
   # Note: Terraform state bucket + key are derived inside the infra-actions
   # reusable from `repo_name` and `hcx_storage_url`; no env vars required here.
 
+  agent_mcp_bindings_json:
+    description: >-
+      Per-agent MCP server allowlist as JSON. See header comment at top
+      of file for the shape and how it's consumed.
+    github_var: "MCPTOOLING_AGENT_BINDINGS_JSON"
+    required: false
+    default: "[]"
+    example: '[{"agent": "trip_planning", "servers": ["duffel"]}, {"agent": "*", "servers": ["duffel"]}]'
+
 # ── secrets ──
 # GitHub Actions secrets (not environment variables)
 
@@ -66,6 +92,19 @@ secrets:
     required: true
 
   mcptooling_allowed_tokens:
-    description: "Comma-separated bearer tokens for MCP client allowlist"
+    description: >-
+      Comma-separated bearer tokens for MCP client allowlist. May include
+      hand-minted global tokens; per-agent tokens (derived from
+      MCPTOOLING_AGENT_TOKEN_SALT + MCPTOOLING_AGENT_BINDINGS_JSON) are
+      appended at deploy time.
     github_secret: "MCPTOOLING_ALLOWED_TOKENS"
     required: true
+
+  mcptooling_agent_token_salt:
+    description: >-
+      HMAC-SHA256 salt used to derive per-agent bearer tokens. Keep this
+      secret — anyone with the salt can mint valid tokens for any agent.
+      Rotate by changing the salt and redeploying (all per-agent tokens
+      change in lockstep).
+    github_secret: "MCPTOOLING_AGENT_TOKEN_SALT"
+    required: false  # only required when MCPTOOLING_AGENT_BINDINGS_JSON is non-empty

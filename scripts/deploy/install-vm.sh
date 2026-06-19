@@ -6,14 +6,24 @@
 # Idempotent: safe to re-run on every deploy.
 #
 # Required env vars (passed from workflow):
-#   DUFFEL_API_KEY          - Duffel API key
+#   DUFFEL_API_KEY            - Duffel API key
 #   MCPTOOLING_ALLOWED_TOKENS - Comma-separated bearer tokens for MCP clients
-#                               (may already include per-agent derived tokens
-#                               from a previous merge step)
+#                               (global tokens; per-agent tokens below are
+#                               appended at install time)
 #
-# Optional env vars for per-agent token minting (both required together):
-#   MCPTOOLING_AGENT_TOKEN_SALT    - HMAC salt for deriving per-agent tokens
-#   MCPTOOLING_AGENT_BINDINGS_JSON - JSON list of {agent, servers[]} entries
+# Optional per-agent bearer tokens (one secret per agent):
+#   MCPTOOLING_AGENT_<AGENT>_TOKEN=***
+#     e.g. MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN=abc123
+#     The "<AGENT>" portion is uppercased; non-alphanumeric chars become
+#     underscores. Any env var matching this pattern is appended to the
+#     allowlist.
+#
+# Optional per-agent binding cross-check (non-secret):
+#   MCPTOOLING_AGENT_BINDINGS_JSON - JSON list of {agent, servers[]}; if set,
+#                                    the install script warns (does NOT fail)
+#                                    about any agent token whose name is not
+#                                    listed. Use to detect typos like
+#                                    TRIP_PLANNING vs trip_planning.
 #
 # Optional env vars (with defaults):
 #   MCPTOOLING_PORT         - HTTP port (default: 8765)
@@ -28,6 +38,7 @@ MCPTOOLING_HOME="${MCPTOOLING_HOME:-/opt/mcp-tooling}"
 MCPTOOLING_PORT="${MCPTOOLING_PORT:-8765}"
 SECRETS_DIR="/etc/mcp-tooling"
 SECRETS_FILE="${SECRETS_DIR}/secrets.env"
+AGENT_TOKEN_MAP="${SECRETS_DIR}/agent-tokens.env"
 
 if [ -z "${DUFFEL_API_KEY:-}" ]; then
   echo "ERROR: DUFFEL_API_KEY is required" >&2
@@ -60,47 +71,77 @@ sudo -u "${MCPTOOLING_USER}" python3 -m venv "${MCPTOOLING_HOME}/.venv"
 sudo -u "${MCPTOOLING_USER}" "${MCPTOOLING_HOME}/.venv/bin/pip" install --upgrade pip wheel
 sudo -u "${MCPTOOLING_USER}" "${MCPTOOLING_HOME}/.venv/bin/pip" install "${MCPTOOLING_HOME}"
 
-# Per-agent token minting. If BOTH the salt and the bindings JSON are
-# set, mint one HMAC-SHA256 token per (server, agent) pair and merge
-# them into MCPTOOLING_ALLOWED_TOKENS. Otherwise leave the global
-# tokens list untouched (backwards compatible).
+# Per-agent bearer token enrollment.
 #
-# Done AFTER venv setup so we can use the venv's python interpreter
-# (matches how the server itself runs).
-if [ -n "${MCPTOOLING_AGENT_TOKEN_SALT:-}" ] && [ -n "${MCPTOOLING_AGENT_BINDINGS_JSON:-}" ]; then
-  echo "==> Minting per-agent bearer tokens from MCPTOOLING_AGENT_BINDINGS_JSON"
-  MERGED=$(MCPTOOLING_AGENT_TOKEN_SALT="${MCPTOOLING_AGENT_TOKEN_SALT}" \
-           MCPTOOLING_AGENT_BINDINGS_JSON="${MCPTOOLING_AGENT_BINDINGS_JSON}" \
-           MCPTOOLING_ALLOWED_TOKENS="${MCPTOOLING_ALLOWED_TOKENS}" \
-           "${MCPTOOLING_HOME}/.venv/bin/python" \
-           "${MCPTOOLING_HOME}/scripts/ci/render-agent-tokens.py" \
-           --out-merged-env 2>&1) || {
-    echo "ERROR: failed to mint per-agent tokens (see above)" >&2
-    exit 1
-  }
-  # Extract the MCPTOOLING_ALLOWED_TOKENS=... line from the helper output.
-  NEW_TOKENS=$(echo "${MERGED}" | grep -E '^MCPTOOLING_ALLOWED_TOKENS=' | head -1 | cut -d= -f2-)
-  if [ -z "${NEW_TOKENS}" ]; then
-    echo "ERROR: render-agent-tokens.py did not emit MCPTOOLING_ALLOWED_TOKENS" >&2
-    exit 1
+# Discovers env vars matching MCPTOOLING_AGENT_<NAME>_TOKEN and appends
+# their values to MCPTOOLING_ALLOWED_TOKENS. Also writes the
+# (agent → token) map to ${AGENT_TOKEN_MAP} so the deploy workflow can
+# upload it as an artifact for the gateway to pull.
+#
+# Done AFTER venv setup so secrets.env + agent-tokens.env both end up
+# consistent for the service that's about to start.
+echo "==> Enrolling per-agent bearer tokens from MCPTOOLING_AGENT_*_TOKEN"
+declare -A AGENT_TOKEN_MAP_DECL
+while IFS='=' read -r name value; do
+  # Match MCPTOOLING_AGENT_<...>_TOKEN. Skip MCPTOOLING_AGENT_BINDINGS_JSON
+  # (which has the same prefix but no _TOKEN suffix and isn't a token).
+  if [[ "${name}" =~ ^MCPTOOLING_AGENT_(.+)_(TOKEN|token)$ ]]; then
+    # Lowercase the agent name so MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN
+    # (GitHub secret naming convention is uppercase) enrolls as
+    # "trip_planning" — matches the agent_id format used elsewhere.
+    agent_name="$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+    if [ -z "${value}" ]; then
+      echo "WARNING: ${name} is empty; skipping" >&2
+      continue
+    fi
+    AGENT_TOKEN_MAP_DECL["${agent_name}"]="${value}"
   fi
-  MCPTOOLING_ALLOWED_TOKENS="${NEW_TOKENS}"
-  echo "==> Per-agent tokens merged; allowlist size = $(echo "${MCPTOOLING_ALLOWED_TOKENS}" | tr ',' '\n' | wc -l)"
+done < <(env)
 
-  # Write the per-agent token JSON artifact so the gateway (linux-desktop-seed)
-  # can pull it via SSH and wire per-agent Authorization headers into each
-  # agent's openclaw config. Same mode as secrets.env (root:mcptooling 0640).
-  echo "==> Writing per-agent token map to ${SECRETS_DIR}/agent-tokens.json"
-  MCPTOOLING_AGENT_TOKEN_SALT="${MCPTOOLING_AGENT_TOKEN_SALT}" \
-  MCPTOOLING_AGENT_BINDINGS_JSON="${MCPTOOLING_AGENT_BINDINGS_JSON}" \
-  MCPTOOLING_ALLOWED_TOKENS="${MCPTOOLING_ALLOWED_TOKENS}" \
-  "${MCPTOOLING_HOME}/.venv/bin/python" \
-  "${MCPTOOLING_HOME}/scripts/ci/render-agent-tokens.py" \
-  --out-agent-json "${SECRETS_DIR}/agent-tokens.json"
-  chmod 640 "${SECRETS_DIR}/agent-tokens.json"
-  chown root:"${MCPTOOLING_USER}" "${SECRETS_DIR}/agent-tokens.json"
-elif [ -n "${MCPTOOLING_AGENT_TOKEN_SALT:-}" ] || [ -n "${MCPTOOLING_AGENT_BINDINGS_JSON:-}" ]; then
-  echo "WARNING: only one of MCPTOOLING_AGENT_TOKEN_SALT / MCPTOOLING_AGENT_BINDINGS_JSON is set; skipping per-agent token minting" >&2
+if [ "${#AGENT_TOKEN_MAP_DECL[@]}" -gt 0 ]; then
+  # Append per-agent tokens to the allowlist (comma-join).
+  EXTRA_TOKENS=""
+  for token in "${AGENT_TOKEN_MAP_DECL[@]}"; do
+    EXTRA_TOKENS="${EXTRA_TOKENS:+${EXTRA_TOKENS},}${token}"
+  done
+  MCPTOOLING_ALLOWED_TOKENS="${MCPTOOLING_ALLOWED_TOKENS:+${MCPTOOLING_ALLOWED_TOKENS},}${EXTRA_TOKENS}"
+  echo "==> Enrolled ${#AGENT_TOKEN_MAP_DECL[@]} agent token(s); allowlist size = $(echo "${MCPTOOLING_ALLOWED_TOKENS}" | tr ',' '\n' | wc -l)"
+
+  # Optional binding cross-check. Warn (don't fail) on agents with a
+  # token but no binding entry.
+  if [ -n "${MCPTOOLING_AGENT_BINDINGS_JSON:-}" ] && [ "${MCPTOOLING_AGENT_BINDINGS_JSON}" != "[]" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+      python3 - "$MCPTOOLING_AGENT_BINDINGS_JSON" <<'PY' || echo "WARNING: binding cross-check failed" >&2
+import json, sys
+try:
+    bindings = json.loads(sys.argv[1])
+except Exception as exc:
+    print(f"WARNING: MCPTOOLING_AGENT_BINDINGS_JSON invalid ({exc}); skipping cross-check", file=sys.stderr)
+    sys.exit(0)
+bound_agents = {b.get("agent") for b in bindings if isinstance(b, dict)}
+import os
+for env_name in sorted(os.environ):
+    m = __import__("re").match(r"^MCPTOOLING_AGENT_(.+)_(?:TOKEN|token)$", env_name)
+    if m and m.group(1) not in bound_agents:
+        print(f"WARNING: token env var {env_name} has no entry in MCPTOOLING_AGENT_BINDINGS_JSON", file=sys.stderr)
+PY
+    fi
+  fi
+
+  # Write the agent → token map so the deploy workflow can pull it.
+  # Format: simple shell-sourceable KEY=VALUE (tokens are bearer strings,
+  # not shell metacharacters). Mode 0600 root:root — the systemd service
+  # does NOT read this file (only the deploy workflow's root SSH session
+  # does, to fetch it as a workflow artifact for the gateway).
+  mkdir -p "${SECRETS_DIR}"
+  : > "${AGENT_TOKEN_MAP}"
+  for agent in $(printf '%s\n' "${!AGENT_TOKEN_MAP_DECL[@]}" | sort); do
+    echo "MCPTOOLING_AGENT_${agent^^}_TOKEN=${AGENT_TOKEN_MAP_DECL[${agent}]}" >> "${AGENT_TOKEN_MAP}"
+  done
+  chmod 600 "${AGENT_TOKEN_MAP}"
+  chown root:root "${AGENT_TOKEN_MAP}"
+else
+  echo "==> No per-agent tokens enrolled; allowlist is the global MCPTOOLING_ALLOWED_TOKENS only"
 fi
 
 echo "==> Writing secrets file"

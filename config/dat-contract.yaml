@@ -2,22 +2,6 @@
 # Single source of truth for environment variable names used across
 # the deploy pipeline. All scripts MUST read from this file.
 
-# ── agent_mcp_bindings (per-agent MCP server allowlist, optional) ──
-# Cross-check list used at deploy time to catch typos in
-# MCPTOOLING_AGENT_<NAME>_TOKEN secret names. The actual auth tokens
-# come from per-agent secrets (see "secrets" section below), one per
-# agent that needs access. The install script discovers them by env var
-# naming convention and appends each value to MCPTOOLING_ALLOWED_TOKENS.
-#
-# Shape (mirrors linux-desktop-seed PR #908 binding map):
-#   {"agent": "<id>",  "servers": ["<server>"]}  # explicit per-agent
-#   {"agent": "*",     "servers": ["<server>"]}  # default for any agent
-#
-# When MCPTOOLING_AGENT_BINDINGS_JSON is set and non-empty, the install
-# script warns (does NOT fail) if any MCPTOOLING_AGENT_<NAME>_TOKEN
-# secret's <NAME> isn't listed here — helps catch TRIP_PLANNING vs
-# trip_planning mismatches.
-
 # ── deploy_env_vars ──
 # Used by GitHub Actions deploy workflow and Terraform.
 
@@ -52,15 +36,6 @@ deploy_env_vars:
   # Note: Terraform state bucket + key are derived inside the infra-actions
   # reusable from `repo_name` and `hcx_storage_url`; no env vars required here.
 
-  agent_mcp_bindings_json:
-    description: >-
-      Per-agent MCP server allowlist as JSON. See header comment at top
-      of file for the shape and how it's consumed.
-    github_var: "MCPTOOLING_AGENT_BINDINGS_JSON"
-    required: false
-    default: "[]"
-    example: '[{"agent": "trip_planning", "servers": ["duffel"]}, {"agent": "*", "servers": ["duffel"]}]'
-
 # ── secrets ──
 # GitHub Actions secrets (not environment variables)
 
@@ -91,21 +66,6 @@ secrets:
     required: true
 
   mcptooling_allowed_tokens:
-    description: >-
-      Comma-separated bearer tokens for MCP client allowlist. May include
-      hand-minted global tokens; per-agent tokens (from
-      MCPTOOLING_AGENT_<NAME>_TOKEN secrets, see below) are appended at
-      deploy time.
+    description: "Comma-separated bearer tokens for MCP client allowlist"
     github_secret: "MCPTOOLING_ALLOWED_TOKENS"
     required: true
-
-  # Per-agent bearer tokens. Set one of these as a secret per agent
-  # that needs access to the MCP server. The install script discovers
-  # any env var matching this pattern and appends the value to the
-  # server's allowlist. Agent name is uppercased; non-alphanumeric chars
-  # become underscores. Example: trip_planning ->
-  # MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN.
-  mcptooling_agent_trip_planning_token:
-    description: "Per-agent bearer token for trip_planning (one secret per agent)"
-    github_secret: "MCPTOOLING_AGENT_TRIP_PLANNING_TOKEN"
-    required: false

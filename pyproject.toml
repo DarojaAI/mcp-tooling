@@ -28,6 +28,11 @@ dependencies = [
     "uvicorn>=0.30.0",
     "pyyaml>=6.0",
     "jsonschema>=4.0.0",
+    # Google Workspace server: refresh-token OAuth + google-api-python-client.
+    # Pinned to the same family that google-workspace-mcp 2.0.x uses.
+    "google-api-python-client>=2.140.0",
+    "google-auth>=2.30.0",
+    "google-auth-httplib2>=0.2.0",
 ]
 
 [project.optional-dependencies]

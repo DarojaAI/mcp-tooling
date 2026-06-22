@@ -69,3 +69,35 @@ secrets:
     description: "Comma-separated bearer tokens for MCP client allowlist"
     github_secret: "MCPTOOLING_ALLOWED_TOKENS"
     required: true
+
+# ── Google Workspace MCP server (added in google-workspace-mcp PR) ──
+# Narrow OAuth surface: drive.file + documents only.
+# Scope widening must go through a code change to ALLOWED_SCOPES in
+# servers/google_workspace/scope_guard.py, not via runtime config.
+
+  google_workspace_client_id:
+    description: "Google OAuth client ID (apps.googleusercontent.com)"
+    github_secret: "GOOGLE_WORKSPACE_CLIENT_ID"
+    required: true
+
+  google_workspace_client_secret:
+    description: "Google OAuth client secret"
+    github_secret: "GOOGLE_WORKSPACE_CLIENT_SECRET"
+    required: true
+
+  google_workspace_refresh_token:
+    description: |
+      Google OAuth refresh token (one-time bootstrap; rotated via the
+      OAuth bootstrap procedure in docs/integrations/google-workspace-mcp.md).
+    github_secret: "GOOGLE_WORKSPACE_REFRESH_TOKEN"
+    required: true
+
+  google_workspace_scopes:
+    description: |
+      Optional override for OAuth scopes. If unset, the server uses the
+      narrow allowlist (drive.file + documents). If set, every scope MUST
+      be in servers/google_workspace/scope_guard.ALLOWED_SCOPES — the
+      server refuses to start otherwise. Required to be bound to mcp_tooling
+      agent only; scope expansion requires explicit PR-level review.
+    github_secret: "GOOGLE_WORKSPACE_SCOPES"
+    required: false

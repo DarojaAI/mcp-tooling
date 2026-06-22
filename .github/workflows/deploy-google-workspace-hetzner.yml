@@ -1,0 +1,140 @@
+# =============================================================================
+# mcp-tooling - Deploy Google Workspace MCP server to Hetzner via GitHub Actions
+# =============================================================================
+# Mirror of deploy-duffel-hetzner.yml so the two servers share operational
+# shape. Same reusable callers in DarojaAI/infra-actions.
+#
+# Pattern: "setup" job resolves env vars, then the reusable-calling job
+# passes them as inputs. This is required because a job that uses a
+# reusable workflow cannot have its own `environment:` key — the env
+# must be bound on the setup job so ${{ vars.* }} resolves correctly.
+#
+# Required secrets (set per GitHub environment):
+#   HETZNER_API_TOKEN, HCX_ACCESS_KEY, HCX_SECRET_KEY, SSH_PRIVATE_KEY,
+#   GOOGLE_WORKSPACE_CLIENT_ID, GOOGLE_WORKSPACE_CLIENT_SECRET,
+#   GOOGLE_WORKSPACE_REFRESH_TOKEN, MCPTOOLING_ALLOWED_TOKENS
+#
+# Required environment variables (set per GitHub environment):
+#   SERVER_NAME, HETZNER_LOCATION, SERVER_TYPE, HETZNER_SSH_KEY_NAME,
+#   HCX_STORAGE_URL
+#
+# Scope policy: this workflow does NOT pass GOOGLE_WORKSPACE_SCOPES by
+# default. Operators who need to override the narrow allowlist must set
+# the secret explicitly and accept that the server's scope_guard will
+# reject anything outside the allowlist.
+# =============================================================================
+
+name: Deploy Google Workspace to Hetzner
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Deployment action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      environment:
+        description: 'Target environment'
+        required: true
+        type: environment
+      force:
+        description: 'Force deploy even if no Terraform changes'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  setup:
+    name: Resolve env config
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      server_name: ${{ steps.resolve.outputs.server_name }}
+      server_type: ${{ steps.resolve.outputs.server_type }}
+      location: ${{ steps.resolve.outputs.location }}
+      hetzner_ssh_key_name: ${{ steps.resolve.outputs.hetzner_ssh_key_name }}
+      hcx_storage_url: ${{ steps.resolve.outputs.hcx_storage_url }}
+      hcx_region: ${{ steps.resolve.outputs.hcx_region }}
+    steps:
+      - name: Resolve env vars
+        id: resolve
+        env:
+          SERVER_NAME: ${{ vars.SERVER_NAME }}
+          SERVER_TYPE: ${{ vars.SERVER_TYPE }}
+          LOCATION: ${{ vars.HETZNER_LOCATION }}
+          HETZNER_SSH_KEY_NAME: ${{ vars.HETZNER_SSH_KEY_NAME }}
+          HCX_STORAGE_URL: ${{ vars.HCX_STORAGE_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${SERVER_NAME:-}" ] && missing+=("SERVER_NAME")
+          [ -z "${SERVER_TYPE:-}" ] && missing+=("SERVER_TYPE")
+          [ -z "${LOCATION:-}" ] && missing+=("HETZNER_LOCATION")
+          [ -z "${HETZNER_SSH_KEY_NAME:-}" ] && missing+=("HETZNER_SSH_KEY_NAME")
+          [ -z "${HCX_STORAGE_URL:-}" ] && missing+=("HCX_STORAGE_URL")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Environment '${{ inputs.environment }}' is missing required vars:"
+            printf '  - %s\n' "${missing[@]}"
+            exit 1
+          fi
+          echo "server_name=${SERVER_NAME}" >> "$GITHUB_OUTPUT"
+          echo "server_type=${SERVER_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "location=${LOCATION}" >> "$GITHUB_OUTPUT"
+          echo "hetzner_ssh_key_name=${HETZNER_SSH_KEY_NAME}" >> "$GITHUB_OUTPUT"
+          echo "hcx_storage_url=${HCX_STORAGE_URL}" >> "$GITHUB_OUTPUT"
+          # Extract region from HCX storage URL (e.g., "hel1" from "https://hel1.your-objectstorage.com/")
+          HCX_REGION=$(echo "${HCX_STORAGE_URL}" | sed -E "s|https?://([a-z0-9]+)\..*|\1|")
+          [ -z "${HCX_REGION:-}" ] && missing+=("HCX_REGION (could not extract from HCX_STORAGE_URL)")
+          echo "hcx_region=${HCX_REGION}" >> "$GITHUB_OUTPUT"
+
+  apply:
+    name: "Terraform ${{ inputs.action }}"
+    needs: setup
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@main
+    with:
+      action: ${{ inputs.action }}
+      environment: ${{ inputs.environment }}
+      force: ${{ inputs.force }}
+      repo_name: mcp-tooling
+      hcx_storage_url: ${{ needs.setup.outputs.hcx_storage_url }}
+      hcx_region: ${{ needs.setup.outputs.hcx_region }}
+      server_name: ${{ needs.setup.outputs.server_name }}
+      server_type: ${{ needs.setup.outputs.server_type }}
+      location: ${{ needs.setup.outputs.location }}
+      hetzner_ssh_key_name: ${{ needs.setup.outputs.hetzner_ssh_key_name }}
+    secrets:
+      HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+      HCX_ACCESS_KEY: ${{ secrets.HCX_ACCESS_KEY }}
+      HCX_SECRET_KEY: ${{ secrets.HCX_SECRET_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+  deploy:
+    name: Deploy to ${{ needs.setup.outputs.server_name }}
+    needs: [setup, apply]
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@main
+    with:
+      server_ip: ${{ needs.apply.outputs.server_ip }}
+      server_name: ${{ needs.setup.outputs.server_name }}
+      environment: ${{ inputs.environment }}
+      remote_path: /opt/mcp-tooling
+      install_script: scripts/deploy/install-google-workspace-vm.sh
+      health_endpoint: /healthz
+      health_port: 8766
+      forward_secrets: >-
+        GOOGLE_WORKSPACE_CLIENT_ID,GOOGLE_WORKSPACE_CLIENT_SECRET,
+        GOOGLE_WORKSPACE_REFRESH_TOKEN,MCPTOOLING_ALLOWED_TOKENS
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      GOOGLE_WORKSPACE_CLIENT_ID: ${{ secrets.GOOGLE_WORKSPACE_CLIENT_ID }}
+      GOOGLE_WORKSPACE_CLIENT_SECRET: ${{ secrets.GOOGLE_WORKSPACE_CLIENT_SECRET }}
+      GOOGLE_WORKSPACE_REFRESH_TOKEN: ${{ secrets.GOOGLE_WORKSPACE_REFRESH_TOKEN }}
+      MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}

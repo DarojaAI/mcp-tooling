@@ -30,7 +30,12 @@ jobs:
         run: mypy runtime/ servers/ || true  # Non-blocking until code exists
       
       - name: Run tests
-        run: pytest tests/ --cov=runtime --cov=servers --cov-report=term-missing
+        # Discover tests from both tests/ (runtime unit tests) and
+        # servers/*/tests/ (per-server tool/client tests like duffel
+        # and google-workspace). The pre-existing `pytest tests/` invocation
+        # silently skipped everything under servers/, leaving both duffel
+        # and google-workspace test suites uncovered by CI.
+        run: pytest tests servers --cov=runtime --cov=servers --cov-report=term-missing
       
       - name: Validate workflow contract
         run: python3 scripts/ci/validate-workflow-contract.py

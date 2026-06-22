@@ -1,0 +1,49 @@
+# =============================================================================
+# mcp-tooling - pre-commit configuration
+# =============================================================================
+# Run before push to catch lint, format, shell, and BATS issues locally.
+#
+# Install (once):  pip install pre-commit && pre-commit install
+# Run manually:    pre-commit run --all-files
+# =============================================================================
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (servers/google_workspace + runtime)
+        entry: .venv/bin/ruff check servers/google_workspace/ runtime/
+        language: system
+        pass_filenames: false
+        require_serial: true
+
+      - id: ruff-format-check
+        name: ruff format --check (servers/google_workspace)
+        entry: .venv/bin/ruff format --check servers/google_workspace/
+        language: system
+        pass_filenames: false
+        require_serial: true
+
+      - id: pytest
+        # Run pytest unconstrained so it picks up tests under
+        # tests/, servers/*/tests/, and anywhere else test_*.py lives.
+        # (CI's pytest tests/ invocation is a pre-existing gap; this
+        # pre-commit hook is the source of truth for green-before-push.)
+        name: pytest (all)
+        entry: .venv/bin/pytest -q
+        language: system
+        pass_filenames: false
+        require_serial: true
+
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck -x
+        language: system
+        types: [shell]
+
+      - id: bats
+        name: bats
+        entry: bats
+        language: system
+        pass_filenames: false
+        args: ['tests/bats']

@@ -1,0 +1,12 @@
+# mcp-tooling - MCP endpoint registry
+# =============================================================================
+# Static discovery complement to the workflow-artifact mechanism in
+# docs/integrations/mcp-endpoint-discovery.md. Each (server, env) entry
+# is updated by .github/workflows/deploy-mcp-server.yml's
+# endpoint-manifest job after a successful deploy.
+#
+# This file is auto-generated. Do not edit by hand — open an issue if
+# a key is wrong or stale.
+# =============================================================================
+
+servers: {}

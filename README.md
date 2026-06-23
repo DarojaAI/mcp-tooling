@@ -96,6 +96,24 @@ The runtime handles stdio/HTTP, health checks, allowlists, and secrets loading �
 
 See [docs/github-actions-secrets.md](docs/github-actions-secrets.md) for the rendered reference (auto-generated from the contract).
 
+## Endpoint discovery
+
+Deployed MCP servers expose a public `mcp_url` (and a sibling `health`
+probe). Two complementary mechanisms:
+
+- **Workflow artifact** (`mcp-endpoint-<server>-<env>`) — time-sensitive,
+  per-run, fetched via the GitHub REST API.
+- **`config/endpoints.yaml`** — in-repo registry, updated by the
+  `update-endpoints` workflow after each deploy. Stable, no auth, easy
+  for humans and local dev.
+
+Both are documented in [docs/integrations/mcp-endpoint-discovery.md](docs/integrations/mcp-endpoint-discovery.md). The CLI at `scripts/ci/print-endpoint.py` reads the registry:
+
+```bash
+scripts/ci/print-endpoint.py --server google-workspace --env dev --field mcp_url
+# → http://203.0.113.20:8766/mcp
+```
+
 ## Contributing
 
 - **Boundary check:** If adding code to `runtime/` or `servers/<name>/tools/`, confirm it doesn't belong in dev-nexus (analysis) or openclaw-gateway (orchestration) per [architectural boundaries](https://github.com/DarojaAI/dev-nexus/blob/main/docs/architecture/architectural-boundaries.md).

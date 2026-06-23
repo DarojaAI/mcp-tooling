@@ -12,11 +12,8 @@ from typing import Any
 
 import pytest
 
-from runtime.allowlist import Allowlist
 from runtime.base import BaseTool
-from runtime.registry import ToolRegistry
 from runtime.server_spec import ScopePolicy, ServerSpec, run_server, setup
-
 
 SECRETS_DUFFEL = """\
 DUFFEL_API_KEY=test_duffel_key
@@ -158,7 +155,7 @@ def test_setup_no_build_client_raises_runtime_error(tmp_path: Path, monkeypatch:
 
 def _scope_policy():
     """Minimal scope policy matching the google-workspace contract."""
-    from servers.google_workspace.scope_guard import ALLOWED_SCOPES, ScopePolicyError, validate_scopes
+    from servers.google_workspace.scope_guard import ALLOWED_SCOPES, validate_scopes
 
     return ScopePolicy(
         scope_env_var="GOOGLE_WORKSPACE_SCOPES",

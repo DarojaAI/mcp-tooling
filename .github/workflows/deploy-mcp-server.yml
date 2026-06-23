@@ -201,3 +201,70 @@ jobs:
       AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
       AMADEUS_CLIENT_SECRET: '*** secrets.AMADEUS_CLIENT_SECRET }}'
       MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}
+
+  endpoint-manifest:
+    name: Publish ${{ needs.setup.outputs.mcp_server_name }} endpoint manifest
+    needs: [setup, deploy]
+    if: ${{ inputs.action != 'destroy' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: '*** secrets.SSH_PRIVATE_KEY }}'
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ needs.apply.outputs.server_ip }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Fetch endpoint manifest from VM
+        env:
+          SERVER_IP: ${{ needs.apply.outputs.server_ip }}
+          MCP_SERVER_NAME: ${{ needs.setup.outputs.mcp_server_name }}
+          ENV_NAME: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          REMOTE="/etc/mcp-tooling/endpoint.json"
+          LOCAL="/tmp/endpoint.json"
+          if ! scp -o StrictHostKeyChecking=no \
+                   -o ConnectTimeout=10 \
+                   -i ~/.ssh/id_ed25519 \
+                   "root@${SERVER_IP}:${REMOTE}" "${LOCAL}"; then
+            echo "::error::Failed to fetch ${REMOTE} from ${SERVER_IP}." >&2
+            echo "::error::The install script writes this file after /healthz succeeds; a missing file means the install failed or the script is stale." >&2
+            exit 1
+          fi
+          # Validate it's parseable JSON with the expected shape.
+          # Read the expected server name from the env (not the heredoc —
+          # quoted heredocs don't expand, and unquoted heredocs would
+          # double-substitute GH expressions like ${{ }}).
+          EXPECTED_NAME="${MCP_SERVER_NAME}"
+          python3 - "${LOCAL}" "${EXPECTED_NAME}" <<'PYEOF'
+          import json, os, sys
+          path = sys.argv[1]
+          expected = sys.argv[2]
+          with open(path) as f:
+              data = json.load(f)
+          for key in ("name", "port", "ipv4", "mcp_url", "health", "deployed_at"):
+              if key not in data:
+                  print(f"::error::endpoint.json missing required key '{key}'", file=sys.stderr)
+                  sys.exit(1)
+          if data["name"] != expected:
+              print(f"::error::endpoint.json name is {data['name']!r}, expected {expected!r}", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+          echo "Manifest for ${MCP_SERVER_NAME} in ${ENV_NAME}:"
+          cat "${LOCAL}"
+
+      - name: Upload manifest artifact
+        env:
+          MCP_SERVER_NAME: ${{ needs.setup.outputs.mcp_server_name }}
+          ENV_NAME: ${{ inputs.environment }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-endpoint-${{ needs.setup.outputs.mcp_server_name }}-${{ inputs.environment }}
+          path: /tmp/endpoint.json
+          if-no-files-found: error
+          retention-days: 90

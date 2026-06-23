@@ -66,14 +66,15 @@ module "vm" {
 # =============================================================================
 # Firewall
 # =============================================================================
-# Duffel MCP HTTP server defaults to port 8765; mcp-tooling doesn't expose
-# any other inbound services. Add rules here when adding new servers.
+# Inbound TCP ports are driven by the `inbound_ports` variable. Defaults
+# keep Duffel (8765) working as before; add a port when adding a new MCP
+# server (e.g. 8766 for google-workspace). SSH (22) is always open.
 
 resource "hcloud_firewall" "main" {
   name   = "${var.server_name}-firewall"
   labels = merge(var.labels, var.environment != "" ? { environment = var.environment } : {})
 
-  # SSH inbound
+  # SSH inbound — always open.
   rule {
     direction  = "in"
     protocol   = "tcp"
@@ -81,12 +82,16 @@ resource "hcloud_firewall" "main" {
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 
-  # Duffel MCP HTTP server (default port)
-  rule {
-    direction  = "in"
-    protocol   = "tcp"
-    port       = "8765"
-    source_ips = ["0.0.0.0/0", "::/0"]
+  # MCP server inbound ports (one rule per port — Hetzner firewall does
+  # not accept port ranges for this resource).
+  dynamic "rule" {
+    for_each = var.inbound_ports
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = tostring(rule.value)
+      source_ips = ["0.0.0.0/0", "::/0"]
+    }
   }
 
   # All outbound — TCP
@@ -190,5 +195,26 @@ variable "labels" {
   default = {
     project    = "mcp-tooling"
     managed_by = "terraform"
+  }
+}
+
+variable "inbound_ports" {
+  description = <<-EOT
+    TCP ports to open inbound from the public internet (in addition to
+    SSH on 22). One rule per port — Hetzner firewall does not accept
+    ranges here. Default keeps Duffel (8765) working as before; add a
+    port (e.g. 8766 for google-workspace, 8767 for amadeus-hotels) when
+    deploying additional MCP servers on the same VM.
+  EOT
+  type        = list(number)
+  default     = [8765]
+
+  validation {
+    condition     = length(var.inbound_ports) > 0
+    error_message = "inbound_ports must contain at least one port."
+  }
+  validation {
+    condition     = !contains(var.inbound_ports, 22)
+    error_message = "inbound_ports must not include 22 — SSH is always open via a dedicated rule."
   }
 }

@@ -8,3 +8,21 @@ location     = "hel1"
 image        = "ubuntu-24.04"
 
 # hetzner_ssh_key_name = "my-ssh-key"
+
+# -----------------------------------------------------------------------------
+# Firewall inbound ports
+# -----------------------------------------------------------------------------
+# TCP ports to open from the public internet (in addition to SSH on 22,
+# which is always open via a dedicated rule). Add one entry per MCP
+# server you host on the VM. Hetzner firewall does not accept ranges
+# here, so list each port individually.
+#
+# Defaults match the canonical mcp-tooling deployment:
+#   8765 — Duffel
+#   8766 — google-workspace
+#   8767 — amadeus-hotels
+#
+# To host a single server, list only that port:
+#   inbound_ports = [8765]
+# -----------------------------------------------------------------------------
+inbound_ports = [8765, 8766, 8767]

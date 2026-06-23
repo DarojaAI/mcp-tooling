@@ -1,0 +1,19 @@
+# Per-server config for the duffel MCP server.
+# Consumed by .github/workflows/deploy-mcp-server.yml + scripts/deploy/install-mcp-server.sh.
+#
+# Schema is documented in docs/integrations/mcp-integration-shapes.md.
+# This file is the canonical source of truth for what `deploy-mcp-server.yml`
+# needs to know about duffel: package name, port, required secrets, and
+# whether OAuth scope guard is active.
+
+name: duffel
+package: servers.duffel
+port: 8765
+secrets:
+  - DUFFEL_API_KEY
+  - MCPTOOLING_ALLOWED_TOKENS
+optional_secrets:
+  - DUFFEL_API_URL
+  - MCPTOOLING_CONFIRM_BOOKING
+  - MCPTOOLING_CONFIRM_DESTRUCTIVE
+oauth_scope_guard: false

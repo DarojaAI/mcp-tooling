@@ -1,0 +1,23 @@
+# Per-server config for the google-workspace MCP server.
+# Consumed by .github/workflows/deploy-mcp-server.yml + scripts/deploy/install-mcp-server.sh.
+#
+# Schema is documented in docs/integrations/mcp-integration-shapes.md.
+# This file is the canonical source of truth for what `deploy-mcp-server.yml`
+# needs to know about google-workspace: package name, port, required secrets,
+# and the OAuth scope allowlist.
+
+name: google-workspace
+package: servers.google_workspace
+port: 8766
+secrets:
+  - GOOGLE_WORKSPACE_CLIENT_ID
+  - GOOGLE_WORKSPACE_CLIENT_SECRET
+  - GOOGLE_WORKSPACE_REFRESH_TOKEN
+  - MCPTOOLING_ALLOWED_TOKENS
+optional_secrets:
+  - GOOGLE_WORKSPACE_SCOPES
+  - GOOGLE_WORKSPACE_PROJECT_ID
+oauth_scope_guard: true
+allowed_scopes:
+  - https://www.googleapis.com/auth/drive.file
+  - https://www.googleapis.com/auth/documents

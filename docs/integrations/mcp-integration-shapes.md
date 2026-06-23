@@ -37,7 +37,9 @@ Five shapes, ranked by how much code we write in mcp-tooling:
   unit, port allocated.
 - **When:** API needs custom auth, server-side logic, or there's no
   upstream MCP server.
-- **Examples:** duffel, google-workspace, future Amadeus hotels.
+- **Examples:** duffel (API key), google-workspace (refresh-token OAuth),
+  amadeus-hotels (OAuth client credentials). Three auth shapes, one
+  ServerSpec.
 - **Code cost:** ~500 lines (server) + ~150 (install) + ~150 (deploy
   workflow) per server. After the ServerSpec refactor, ~150 lines per
   server.

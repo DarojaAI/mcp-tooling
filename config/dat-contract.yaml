@@ -101,3 +101,23 @@ secrets:
       agent only; scope expansion requires explicit PR-level review.
     github_secret: "GOOGLE_WORKSPACE_SCOPES"
     required: false
+
+# ── Amadeus Hotels MCP server (added in amadeus-hotels PR) ──
+# Search-only: 4 tools, no booking. Uses OAuth2 client credentials
+# (different from google-workspace's refresh token + duffel's API key);
+# ServerSpec handles all three uniformly.
+
+  amadeus_client_id:
+    description: "Amadeus Self-Service OAuth client ID (from developers.amadeus.com)"
+    github_secret: "AMADEUS_CLIENT_ID"
+    required: true
+
+  amadeus_client_secret:
+    description: "Amadeus Self-Service OAuth client secret"
+    github_secret: "AMADEUS_CLIENT_SECRET"
+    required: true
+
+  amadeus_env:
+    description: "Amadeus environment: 'test' (default) or 'production'"
+    github_secret: "AMADEUS_ENV"
+    required: false

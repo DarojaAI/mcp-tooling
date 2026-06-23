@@ -159,11 +159,95 @@ When adding a new MCP server to a fresh VM:
    the port opened, the install script writes `endpoint.json`, and the
    workflow publishes the manifest artifact.
 
+## Static registry: `config/endpoints.yaml`
+
+The artifact mechanism above answers "where is the server *right now*?"
+— time-sensitive, per-run, requires GitHub auth. For "what servers
+exist in this repo, and where do they live in steady state?",
+`config/endpoints.yaml` is the complement: a checked-in registry
+updated by the `update-endpoints` workflow after each successful deploy.
+
+### Why both
+
+|                          | artifact                              | `config/endpoints.yaml`        |
+| ------------------------ | ------------------------------------- | ------------------------------ |
+| Time-sensitivity         | per-run                               | last-seen                      |
+| Auth required            | GitHub token                          | none (in repo)                 |
+| Offline-friendly         | no (needs GitHub API)                 | yes (file in working copy)      |
+| Concurrency model        | n/a (each run has its own artifact)   | last-writer-wins via PR race   |
+| Best for                 | gateway resolving "what's live now"   | humans + local dev + CI config |
+
+### Shape
+
+```yaml
+servers:
+  duffel:
+    dev:
+      mcp_url: http://203.0.113.10:8765/mcp
+      health: http://203.0.113.10:8765/healthz
+      last_deployed: 2026-06-23T20:35:12Z
+      last_run: https://github.com/DarojaAI/mcp-tooling/actions/runs/12345
+  google-workspace:
+    dev:
+      mcp_url: http://203.0.113.20:8766/mcp
+      health: http://203.0.113.20:8766/healthz
+      last_deployed: 2026-06-23T20:40:01Z
+      last_run: https://github.com/DarojaAI/mcp-tooling/actions/runs/12346
+```
+
+The schema is enforced by `scripts/ci/endpoint_registry.py`. Each
+`(server, env)` entry carries the URL, the health probe, when it was
+last deployed, and a link back to the deploy run.
+
+### How it stays current
+
+`update-endpoints.yml` is a `workflow_dispatch` workflow. After a
+`deploy-mcp-server.yml` run completes successfully, an operator runs
+`update-endpoints.yml` with the deploy run's ID, the server name, and
+the environment. The workflow:
+
+1. Downloads the deploy's `mcp-endpoint-<server>-<env>` artifact.
+2. Validates the JSON against the manifest contract.
+3. Reads `config/endpoints.yaml` from main.
+4. Calls `endpoint_registry.update(...)` to merge the new entry
+   (existing entries for other `(server, env)` pairs are preserved).
+5. Opens a PR; auto-merge lands it on main once checks pass.
+
+### Using it from clients
+
+The `scripts/ci/print-endpoint.py` CLI is the simplest interface:
+
+```bash
+# One MCP URL, no auth, no API calls.
+scripts/ci/print-endpoint.py --server google-workspace --env dev --field mcp_url
+# → http://203.0.113.20:8766/mcp
+
+# List what's in the registry.
+scripts/ci/print-endpoint.py --list-servers
+
+# JSON for piping into other tools.
+scripts/ci/print-endpoint.py --json | jq '.servers.google_workspace.dev'
+```
+
+The CLI exits non-zero when an entry is missing (exit 2) or the file
+is unparseable (exit 3), so it's safe to use in shell pipelines.
+
+### Concurrency safety
+
+If two deploys land within seconds of each other (different servers,
+or same server / different envs), both PRs check out main, merge their
+own entry, and push. Whichever PR merges second sees the first PR's
+entry on its own run because `update-endpoints.yml` always reads from
+fresh main. The merge logic in `endpoint_registry.update` does a
+read-modify-write on the dict, so concurrent edits on disjoint keys
+never lose data — only edits on the same `(server, env)` key race,
+and that race is resolved by GitHub's PR merge order.
+
 ## Future work
 
-- A small `config/endpoints.yaml` checked into the repo, written by the
-  manifest job, that maps `server → url` for clients that prefer a static
-  config file over the artifact stream.
-- Optional DNS (Hetzner doesn't manage DNS; would be Cloudflare / Route53).
-  Not needed today — the artifact covers the discovery problem without
-  adding infra.
+- Optional DNS (Hetzner doesn't manage DNS; would be Cloudflare /
+  Route53). Not needed today — the artifact + the registry file cover
+  the discovery problem without adding infra.
+- Auto-trigger `update-endpoints.yml` from `deploy-mcp-server.yml` so
+  the registry stays current without operator action. Defer until the
+  manual flow proves itself in production.

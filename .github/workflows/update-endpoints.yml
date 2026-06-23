@@ -1,0 +1,226 @@
+# =============================================================================
+# mcp-tooling - Update config/endpoints.yaml from a deploy artifact
+# =============================================================================
+# Companion to deploy-mcp-server.yml's endpoint-manifest job (PR #49).
+# Reads the per-deploy endpoint JSON artifact and merges it into
+# config/endpoints.yaml, opening a PR with the result.
+#
+# Trigger: workflow_dispatch. Operators run this manually after a
+# successful deploy to update the in-repo registry. We deliberately
+# avoid `workflow_run` here because:
+#
+#   1. Cross-workflow artifact access from `workflow_run` triggers
+#      requires `actions: read` on both the triggering and triggered
+#      workflows. Adding that to deploy-mcp-server.yml would couple
+#      PRs #49 and #50 for no real benefit.
+#   2. A manual dispatch is more visible — humans see when the registry
+#      updates, and the deploy run summary can include a "next: run
+#      update-endpoints with run URL X" hint.
+#   3. The PR that lands on main is the visible signal; humans review
+#      the YAML diff before merge.
+#
+# Inputs:
+#   - run_id: the deploy-mcp-server.yml run ID whose endpoint artifact
+#             should be merged in. The artifact name is derived from
+#             server_name + environment.
+#   - server_name: must match a config/servers/<name>.yaml entry.
+#   - environment: dev / staging / prod (matches GitHub environment name).
+# =============================================================================
+
+name: Update endpoints registry
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run ID of the deploy-mcp-server.yml run to ingest (from the Actions URL)"
+        required: true
+        type: string
+      server_name:
+        description: "Server name (must match config/servers/<name>.yaml)"
+        required: true
+        type: string
+      environment:
+        description: "Target environment (dev / staging / prod)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  update:
+    name: Update ${{ inputs.server_name }} / ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Validate inputs
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          SERVER: ${{ inputs.server_name }}
+          ENV_NAME: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          # run_id must be a positive integer; reject anything else early
+          # so we don't discover the bad input after downloading artifacts.
+          if ! [[ "${RUN_ID}" =~ ^[0-9]+$ ]]; then
+            echo "::error::run_id must be a positive integer; got ${RUN_ID}" >&2
+            exit 1
+          fi
+          for name in server env; do
+            case "${name}" in
+              server) val="${SERVER}" ;;
+              env) val="${ENV_NAME}" ;;
+            esac
+            if ! [[ "${val}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]; then
+              echo "::error::${name} name must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\$; got ${val}" >&2
+              exit 1
+            fi
+          done
+          echo "Inputs validated: server=${SERVER} env=${ENV_NAME} run_id=${RUN_ID}"
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Download endpoint artifact
+        id: download
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ inputs.run_id }}
+          SERVER: ${{ inputs.server_name }}
+          ENV_NAME: ${{ inputs.environment }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          artifact_name="mcp-endpoint-${SERVER}-${ENV_NAME}"
+          echo "Downloading artifact ${artifact_name} from ${REPO} run ${RUN_ID}"
+          if ! gh run download "${RUN_ID}" \
+              --repo "${REPO}" \
+              --name "${artifact_name}" \
+              --dir /tmp/endpoint-artifact; then
+            echo "::error::Failed to download artifact ${artifact_name}." >&2
+            echo "::error::Check that:" >&2
+            echo "::error::  - run_id ${RUN_ID} is correct (from the deploy Actions URL)" >&2
+            echo "::error::  - the deploy-mcp-server.yml run completed successfully" >&2
+            echo "::error::  - the artifact name matches mcp-endpoint-<server>-<env>" >&2
+            echo "::error::  - the artifact hasn't expired (90-day retention)" >&2
+            exit 1
+          fi
+          ls -la /tmp/endpoint-artifact
+          echo "artifact_path=/tmp/endpoint-artifact/endpoint.json" >> "$GITHUB_OUTPUT"
+
+      - name: Merge into config/endpoints.yaml
+        env:
+          ARTIFACT_PATH: ${{ steps.download.outputs.artifact_path }}
+          SERVER: ${{ inputs.server_name }}
+          ENV_NAME: ${{ inputs.environment }}
+          RUN_ID: ${{ inputs.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<PYEOF
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts/ci")
+          import endpoint_registry as reg
+
+          artifact = json.loads(Path("${ARTIFACT_PATH}").read_text())
+          for key in ("name", "port", "ipv4", "mcp_url", "health"):
+              if key not in artifact:
+                  print(f"::error::artifact missing key {key!r}", file=sys.stderr)
+                  sys.exit(1)
+          if artifact["name"] != "${SERVER}":
+              print(
+                  f"::error::artifact name={artifact['name']!r} != server=${SERVER}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          data = reg.load("config/endpoints.yaml")
+          data = reg.update(
+              data,
+              server=artifact["name"],
+              env="${ENV_NAME}",
+              mcp_url=artifact["mcp_url"],
+              health=artifact["health"],
+              last_run="${RUN_URL}",
+          )
+          reg.write("config/endpoints.yaml", data)
+          print(f"Updated config/endpoints.yaml for ${SERVER}/${ENV_NAME}")
+          PYEOF
+          echo "--- updated config/endpoints.yaml ---"
+          cat config/endpoints.yaml
+
+      - name: Detect if anything changed
+        id: changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- config/endpoints.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes to config/endpoints.yaml."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected:"
+            git diff --stat -- config/endpoints.yaml
+            git diff -- config/endpoints.yaml
+          fi
+
+      - name: Open PR with updated registry
+        if: steps.changed.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERVER: ${{ inputs.server_name }}
+          ENV_NAME: ${{ inputs.environment }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          branch="endpoints/${SERVER}-${ENV_NAME}-${timestamp}"
+          git checkout -b "${branch}"
+          git add config/endpoints.yaml
+          git -c user.name="mcp-tooling-bot" \
+              -c user.email="bot@mcp-tooling.local" \
+              commit -m "endpoints: update ${SERVER}/${ENV_NAME} from ${RUN_URL}"
+
+          git push -u origin "${branch}"
+
+          diff_text="$(git diff --stat HEAD~1 HEAD -- config/endpoints.yaml)"
+          body="$(cat <<BODY
+          Auto-generated by the update-endpoints workflow.
+
+          **Server:** \`${SERVER}\`
+          **Environment:** \`${ENV_NAME}\`
+          **Source deploy run:** ${RUN_URL}
+          **Updated at:** ${timestamp}
+
+          ## Diff
+
+          \`\`\`
+          ${diff_text}
+          \`\`\`
+
+          ---
+          *This PR will auto-merge once checks pass.*
+          BODY
+          )"
+
+          gh pr create \
+            --base main \
+            --head "${branch}" \
+            --title "endpoints: ${SERVER} / ${ENV_NAME} — ${timestamp}" \
+            --body "${body}"
+          echo "Opened PR for ${branch}"

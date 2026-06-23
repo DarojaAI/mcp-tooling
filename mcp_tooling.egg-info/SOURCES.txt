@@ -14,5 +14,6 @@ runtime/health.py
 runtime/http_server.py
 runtime/registry.py
 runtime/secrets.py
+runtime/server_spec.py
 runtime/stdio_server.py
 runtime/streamable_http_server.py

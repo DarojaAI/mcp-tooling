@@ -1,0 +1,201 @@
+# =============================================================================
+# mcp-tooling - Deploy any MCP server to Hetzner via GitHub Actions
+# =============================================================================
+# Reusable caller that replaces deploy-duffel-hetzner.yml and
+# deploy-google-workspace-hetzner.yml. Reads config/servers/<name>.yaml
+# for the per-server config and forwards the right secrets to the
+# generic install script on the VM.
+#
+# Required secrets (set per GitHub environment):
+#   HETZNER_API_TOKEN, HCX_ACCESS_KEY, HCX_SECRET_KEY, SSH_PRIVATE_KEY,
+#   MCPTOOLING_ALLOWED_TOKENS, plus any per-server secrets declared in
+#   config/servers/<name>.yaml (e.g. DUFFEL_API_KEY for duffel,
+#   GOOGLE_WORKSPACE_* for google-workspace).
+#
+# Required environment variables (set per GitHub environment):
+#   SERVER_NAME, HETZNER_LOCATION, SERVER_TYPE, HETZNER_SSH_KEY_NAME,
+#   HCX_STORAGE_URL
+#
+# Triggered via workflow_dispatch with `server_name` input pointing at
+# one of the entries in config/servers/.
+# =============================================================================
+
+name: Deploy MCP server to Hetzner
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_name:
+        description: 'Server name (must match config/servers/<name>.yaml)'
+        required: true
+        type: string
+      action:
+        description: 'Deployment action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      environment:
+        description: 'Target environment'
+        required: true
+        type: environment
+      force:
+        description: 'Force deploy even if no Terraform changes'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  setup:
+    name: Resolve env config
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      server_name: ${{ steps.resolve.outputs.server_name }}
+      server_type: ${{ steps.resolve.outputs.server_type }}
+      location: ${{ steps.resolve.outputs.location }}
+      hetzner_ssh_key_name: ${{ steps.resolve.outputs.hetzner_ssh_key_name }}
+      hcx_storage_url: ${{ steps.resolve.outputs.hcx_storage_url }}
+      hcx_region: ${{ steps.resolve.outputs.hcx_region }}
+      mcp_server_name: ${{ steps.resolve.outputs.mcp_server_name }}
+      mcp_server_port: ${{ steps.resolve.outputs.mcp_server_port }}
+      mcp_server_secrets: ${{ steps.resolve.outputs.mcp_server_secrets }}
+      mcp_server_optional_secrets: ${{ steps.resolve.outputs.mcp_server_optional_secrets }}
+      mcp_server_oauth_scope_guard: ${{ steps.resolve.outputs.mcp_server_oauth_scope_guard }}
+      mcp_server_allowed_scopes: ${{ steps.resolve.outputs.mcp_server_allowed_scopes }}
+      mcp_server_scope_env_var: ${{ steps.resolve.outputs.mcp_server_scope_env_var }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate server config exists
+        run: |
+          if [ ! -f "config/servers/${{ inputs.server_name }}.yaml" ]; then
+            echo "::error::No config found for server '${{ inputs.server_name }}' at config/servers/${{ inputs.server_name }}.yaml"
+            echo "Available servers:"
+            ls config/servers/ | sed 's/^/  - /'
+            exit 1
+          fi
+
+      - name: Resolve env vars + per-server config
+        id: resolve
+        env:
+          SERVER_NAME: ${{ vars.SERVER_NAME }}
+          SERVER_TYPE: ${{ vars.SERVER_TYPE }}
+          LOCATION: ${{ vars.HETZNER_LOCATION }}
+          HETZNER_SSH_KEY_NAME: ${{ vars.HETZNER_SSH_KEY_NAME }}
+          HCX_STORAGE_URL: ${{ vars.HCX_STORAGE_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${SERVER_NAME:-}" ] && missing+=("SERVER_NAME")
+          [ -z "${SERVER_TYPE:-}" ] && missing+=("SERVER_TYPE")
+          [ -z "${LOCATION:-}" ] && missing+=("HETZNER_LOCATION")
+          [ -z "${HETZNER_SSH_KEY_NAME:-}" ] && missing+=("HETZNER_SSH_KEY_NAME")
+          [ -z "${HCX_STORAGE_URL:-}" ] && missing+=("HCX_STORAGE_URL")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Environment '${{ inputs.environment }}' is missing required vars:"
+            printf '  - %s\n' "${missing[@]}"
+            exit 1
+          fi
+          echo "server_name=${SERVER_NAME}" >> "$GITHUB_OUTPUT"
+          echo "server_type=${SERVER_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "location=${LOCATION}" >> "$GITHUB_OUTPUT"
+          echo "hetzner_ssh_key_name=${HETZNER_SSH_KEY_NAME}" >> "$GITHUB_OUTPUT"
+          echo "hcx_storage_url=${HCX_STORAGE_URL}" >> "$GITHUB_OUTPUT"
+          HCX_REGION=$(echo "${HCX_STORAGE_URL}" | sed -E "s|https?://([a-z0-9]+)\..*|\1|")
+          [ -z "${HCX_REGION:-}" ] && missing+=("HCX_REGION (could not extract from HCX_STORAGE_URL)")
+          echo "hcx_region=${HCX_REGION}" >> "$GITHUB_OUTPUT"
+
+          # Parse per-server config.
+          python3 - "${{ inputs.server_name }}" > /tmp/mcp_server_config.env <<'PYEOF'
+          import sys
+          import yaml
+
+          server_name = sys.argv[1]
+          with open(f"config/servers/{server_name}.yaml") as f:
+              cfg = yaml.safe_load(f) or {}
+
+          name = cfg.get("name", server_name)
+          port = cfg.get("port")
+          secrets = cfg.get("secrets", [])
+          optional = cfg.get("optional_secrets", [])
+          oauth_guard = cfg.get("oauth_scope_guard", False)
+          allowed_scopes = cfg.get("allowed_scopes", [])
+
+          if port is None:
+              print(f"::error::config/servers/{server_name}.yaml missing 'port'", file=sys.stderr)
+              sys.exit(1)
+
+          # Echo the per-server env vars the install script needs.
+          print(f"mcp_server_name={name}")
+          print(f"mcp_server_port={port}")
+          print(f"mcp_server_secrets={' '.join(secrets)}")
+          print(f"mcp_server_optional_secrets={' '.join(optional)}")
+          print(f"mcp_server_oauth_scope_guard={'true' if oauth_guard else 'false'}")
+          print(f"mcp_server_allowed_scopes={','.join(allowed_scopes)}")
+
+          # If oauth_guard is on, the install script also needs the name
+          # of the env var that holds the configured scopes. Convention:
+          # any secret in the yaml whose name ends in _SCOPES is the scope var.
+          scope_env_vars = sorted(s for s in secrets + optional if s.endswith("_SCOPES"))
+          if oauth_guard and scope_env_vars:
+              print(f"mcp_server_scope_env_var={scope_env_vars[0]}")
+          PYEOF
+          cat /tmp/mcp_server_config.env >> "$GITHUB_OUTPUT"
+
+  apply:
+    name: "Terraform ${{ inputs.action }}"
+    needs: setup
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@main
+    with:
+      action: ${{ inputs.action }}
+      environment: ${{ inputs.environment }}
+      force: ${{ inputs.force }}
+      repo_name: mcp-tooling
+      hcx_storage_url: ${{ needs.setup.outputs.hcx_storage_url }}
+      hcx_region: ${{ needs.setup.outputs.hcx_region }}
+      server_name: ${{ needs.setup.outputs.server_name }}
+      server_type: ${{ needs.setup.outputs.server_type }}
+      location: ${{ needs.setup.outputs.location }}
+      hetzner_ssh_key_name: ${{ needs.setup.outputs.hetzner_ssh_key_name }}
+    secrets:
+      HETZNER_API_TOKEN: '*** secrets.HETZNER_API_TOKEN }}'
+      HCX_ACCESS_KEY: '*** secrets.HCX_ACCESS_KEY }}'
+      HCX_SECRET_KEY: '*** secrets.HCX_SECRET_KEY }}'
+      SSH_PRIVATE_KEY: '*** secrets.SSH_PRIVATE_KEY }}'
+
+  deploy:
+    name: Deploy ${{ needs.setup.outputs.mcp_server_name }} to ${{ needs.setup.outputs.server_name }}
+    needs: [setup, apply]
+    uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@main
+    with:
+      server_ip: ${{ needs.apply.outputs.server_ip }}
+      server_name: ${{ needs.setup.outputs.server_name }}
+      environment: ${{ inputs.environment }}
+      remote_path: /opt/mcp-tooling
+      install_script: scripts/deploy/install-mcp-server.sh
+      health_endpoint: /healthz
+      health_port: ${{ needs.setup.outputs.mcp_server_port }}
+      # Forward MCP_SERVER_* env vars + per-server secrets.
+      # The reusable deploy caller forwards these to the install script.
+      forward_env: >-
+        MCP_SERVER_NAME=${{ needs.setup.outputs.mcp_server_name }}
+        MCP_SERVER_PORT=${{ needs.setup.outputs.mcp_server_port }}
+        MCP_SERVER_SECRETS='${{ needs.setup.outputs.mcp_server_secrets }}'
+        MCP_SERVER_SCOPE_GUARD=${{ needs.setup.outputs.mcp_server_oauth_scope_guard }}
+        MCP_SERVER_ALLOWED_SCOPES=${{ needs.setup.outputs.mcp_server_allowed_scopes }}
+        MCP_SERVER_SCOPE_ENV_VAR=${{ needs.setup.outputs.mcp_server_scope_env_var }}
+    secrets:
+      SSH_PRIVATE_KEY: '*** secrets.SSH_PRIVATE_KEY }}'
+      DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
+      GOOGLE_WORKSPACE_CLIENT_ID: ${{ secrets.GOOGLE_WORKSPACE_CLIENT_ID }}
+      GOOGLE_WORKSPACE_CLIENT_SECRET: '*** secrets.GOOGLE_WORKSPACE_CLIENT_SECRET }}'
+      GOOGLE_WORKSPACE_REFRESH_TOKEN: '*** secrets.GOOGLE_WORKSPACE_REFRESH_TOKEN }}'
+      MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}

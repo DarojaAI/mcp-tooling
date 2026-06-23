@@ -461,44 +461,14 @@ mcp-tooling.
 
 ## Refactor plan — order of PRs
 
-1. **PR #43: extract `ServerSpec` + `run_server`.** New file
-   `runtime/server_spec.py`. Refactor `servers/duffel/__main__.py` and
-   `servers/google_workspace/__main__.py` to use it. All 103 existing
-   tests must still pass; no behavior changes. This is the load-bearing
-   refactor; do not skip the test gate.
-
-2. **PR #44: generic install script + reusable deploy workflow.**
-   - `scripts/deploy/install-mcp-server.sh` (new).
-   - `scripts/deploy/install-vm.sh` and
-     `scripts/deploy/install-google-workspace-vm.sh` get deleted
-     (replaced by env-var calls to the generic script in the deploy
-     workflow).
-   - `.github/workflows/deploy-mcp-server.yml` (new, reusable).
-   - `.github/workflows/deploy-duffel-hetzner.yml` and
-     `.github/workflows/deploy-google-workspace-hetzner.yml` get
-     deleted (replaced by callers of the reusable).
-   - `config/servers/duffel.yaml` and
-     `config/servers/google-workspace.yaml` (new).
-   - **This PR also needs a coordinated change in
-     `DarojaAI/infra-actions`** (the reusable deploy caller must accept
-     the new env-var forwarding contract) and in `linux-desktop-seed`
-     (the dat-contract-side mirror).
-   - The new `reusable-hetzner-deploy.yml` in infra-actions lives
-     there; we just consume it from mcp-tooling.
-
-3. **PR #45: add server #3 (Amadeus hotels or Notion).** This is the
-   proof — if the refactor in #43 + #44 holds, adding a server is
-   <300 lines of new code (one `__main__.py`, one client, one tool
-   module per tool, one `config/servers/<name>.yaml`).
-
-4. **PR #46 (later, after ≥2 servers per topic exist): topic
-   groupings.** Move `servers/duffel/` → `servers/travel/duffel/`,
-   etc. Update deploy config. **Only do this if the topic has real
-   shared code** (scope policy, test fixtures, topic doc).
-
-5. **Separate piece, in parallel: Skill Workshop proposals** for
-   `add-mcp-server` and `review-mcp-server-scope-policy`. These help
-   future agents; they don't block PRs #43-46.
+1. **PR #43: design doc.** ✅ Merged (#43).
+2. **PR #44: extract `ServerSpec` + `run_server`.** ✅ Merged (#44).
+3. **PR #46 + #47: generic install script + reusable deploy workflow.** ✅
+4. **PR #48: add server #3 — Amadeus Hotels.** ✅ 24 new tests, ~600 lines,
+   same shape as duffel/gw. This is the proof — `ServerSpec` handles a
+   third auth shape (OAuth client credentials) without modification.
+5. **PR #49 (later, after ≥2 servers per topic exist): topic
+   groupings.**
 
 ## Risks and how to handle them
 

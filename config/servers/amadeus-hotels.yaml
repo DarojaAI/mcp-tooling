@@ -1,0 +1,13 @@
+# Per-server config for the Amadeus Hotels MCP server.
+# Consumed by .github/workflows/deploy-mcp-server.yml + scripts/deploy/install-mcp-server.sh.
+
+name: amadeus-hotels
+package: servers.amadeus_hotels
+port: 8767
+secrets:
+  - AMADEUS_CLIENT_ID
+  - AMADEUS_CLIENT_SECRET
+  - MCPTOOLING_ALLOWED_TOKENS
+optional_secrets:
+  - AMADEUS_ENV
+oauth_scope_guard: false

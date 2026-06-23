@@ -11,20 +11,20 @@ repos:
   - repo: local
     hooks:
       - id: ruff-check
-        name: ruff check (tests + servers/google_workspace + runtime)
-        # Covers tests/, servers/google_workspace/, and runtime/.
+        name: ruff check (tests + servers/google_workspace + servers/amadeus_hotels + runtime)
+        # Covers tests/, servers/google_workspace/, servers/amadeus_hotels/, and runtime/.
         # Wider than the CI's `ruff check .` would be — we only own
-        # these three trees; the rest is duffel + legacy that may
+        # these trees; the rest is duffel + legacy that may
         # have its own lint state. Pre-commit must be the green-
         # before-push gate for code we're touching.
-        entry: .venv/bin/ruff check tests/ servers/google_workspace/ runtime/
+        entry: .venv/bin/ruff check tests/ servers/google_workspace/ servers/amadeus_hotels/ runtime/
         language: system
         pass_filenames: false
         require_serial: true
 
       - id: ruff-format-check
-        name: ruff format --check (servers/google_workspace)
-        entry: .venv/bin/ruff format --check servers/google_workspace/
+        name: ruff format --check (servers/google_workspace + servers/amadeus_hotels)
+        entry: .venv/bin/ruff format --check servers/google_workspace/ servers/amadeus_hotels/
         language: system
         pass_filenames: false
         require_serial: true

@@ -244,12 +244,65 @@ for _ in {1..20}; do
   if curl -fsS "http://localhost:${MCP_SERVER_PORT}/healthz" > /dev/null 2>&1; then
     echo "✅ ${MCP_SERVER_NAME} healthy on port ${MCP_SERVER_PORT}"
     curl -sS "http://localhost:${MCP_SERVER_PORT}/healthz"
-    exit 0
+    echo
+    break
   fi
   sleep 2
 done
 
-echo "ERROR: Service did not become healthy" >&2
-echo "--- last 50 lines of service log ---" >&2
-journalctl -u "${SERVICE_NAME}.service" -n 50 --no-pager >&2
-exit 1
+# If the health check never succeeded, the loop above fell through.
+# Verify before we declare success.
+if ! curl -fsS "http://localhost:${MCP_SERVER_PORT}/healthz" > /dev/null 2>&1; then
+  echo "ERROR: Service did not become healthy" >&2
+  echo "--- last 50 lines of service log ---" >&2
+  journalctl -u "${SERVICE_NAME}.service" -n 50 --no-pager >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Endpoint manifest
+# ---------------------------------------------------------------------------
+# Write /etc/mcp-tooling/endpoint.json so any code on the VM (and the
+# deploy workflow's endpoint-manifest job) has a canonical
+# "where does this server live" answer. The deploy workflow fetches this
+# file via SSH and uploads it as a workflow artifact; external clients
+# (OpenClaw gateway, peer MCP servers) read the artifact to discover
+# the URL.
+#
+# IPv4 is preferred (matches Hetzner firewall source rules); fall back
+# to IPv6 if the VM has no public IPv4 (uncommon — hel1/fsn1/nbg1 VMs
+# always get one).
+#
+# Mode 644 is intentional — clients should be able to read this without
+# mcptooling group membership. The file contains no secrets; it only
+# names public network endpoints.
+# ---------------------------------------------------------------------------
+
+echo "==> Writing endpoint manifest"
+ENDPOINT_FILE="${SECRETS_DIR}/endpoint.json"
+_ipv4="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
+if [ -z "${_ipv4}" ]; then
+  _ipv4="$(ip -6 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
+fi
+# JSON-encode each field. The strings are ASCII (server name, IPv4/IPv6,
+# paths) so a simple sed-quote is sufficient — no control chars or quotes
+# to escape.
+_server_name_json="${MCP_SERVER_NAME//\"/\\\"}"
+_ipv4_json="${_ipv4//\"/\\\"}"
+cat > "${ENDPOINT_FILE}" <<EOF
+{
+  "name": "${_server_name_json}",
+  "port": ${MCP_SERVER_PORT},
+  "ipv4": "${_ipv4_json}",
+  "base_url": "http://${_ipv4_json}:${MCP_SERVER_PORT}",
+  "mcp_url": "http://${_ipv4_json}:${MCP_SERVER_PORT}/mcp",
+  "health": "http://${_ipv4_json}:${MCP_SERVER_PORT}/healthz",
+  "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+chmod 644 "${ENDPOINT_FILE}"
+chown root:root "${ENDPOINT_FILE}"
+echo "    ${ENDPOINT_FILE}:"
+sed 's/^/      /' "${ENDPOINT_FILE}"
+
+exit 0

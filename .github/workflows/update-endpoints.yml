@@ -20,11 +20,12 @@
 #      the YAML diff before merge.
 #
 # Inputs:
-#   - run_id: the deploy-mcp-server.yml run ID whose endpoint artifact
-#             should be merged in. The artifact name is derived from
-#             server_name + environment.
-#   - server_name: must match a config/servers/<name>.yaml entry.
-#   - environment: dev / staging / prod (matches GitHub environment name).
+#   - deploy_run_url: paste-the-URL from the deploy-mcp-server.yml run.
+#     The workflow parses the run ID out of it, lists the run's
+#     artifacts, downloads the mcp-endpoint-* one, and derives
+#     (server, env) from the artifact name + JSON body. Operators
+#     don't type server name or environment by hand — the artifact
+#     is the source of truth.
 # =============================================================================
 
 name: Update endpoints registry
@@ -32,16 +33,8 @@ name: Update endpoints registry
 on:
   workflow_dispatch:
     inputs:
-      run_id:
-        description: "Run ID of the deploy-mcp-server.yml run to ingest (from the Actions URL)"
-        required: true
-        type: string
-      server_name:
-        description: "Server name (must match config/servers/<name>.yaml)"
-        required: true
-        type: string
-      environment:
-        description: "Target environment (dev / staging / prod)"
+      deploy_run_url:
+        description: "URL of the deploy-mcp-server.yml run (paste from the Actions UI)"
         required: true
         type: string
 
@@ -52,34 +45,42 @@ permissions:
 
 jobs:
   update:
-    name: Update ${{ inputs.server_name }} / ${{ inputs.environment }}
+    name: Update endpoints registry
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
     steps:
-      - name: Validate inputs
+      - name: Validate + parse run URL
+        id: parse
         env:
-          RUN_ID: ${{ inputs.run_id }}
-          SERVER: ${{ inputs.server_name }}
-          ENV_NAME: ${{ inputs.environment }}
+          INPUT_URL: ${{ inputs.deploy_run_url }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
           set -euo pipefail
-          # run_id must be a positive integer; reject anything else early
-          # so we don't discover the bad input after downloading artifacts.
-          if ! [[ "${RUN_ID}" =~ ^[0-9]+$ ]]; then
-            echo "::error::run_id must be a positive integer; got ${RUN_ID}" >&2
+          # Accept either a full GitHub Actions run URL or just the run ID.
+          # Examples that must work:
+          #   https://github.com/DarojaAI/mcp-tooling/actions/runs/12345
+          #   /DarojaAI/mcp-tooling/actions/runs/12345
+          #   12345
+          url="${INPUT_URL}"
+          if [[ "${url}" =~ ^[0-9]+$ ]]; then
+            # Just a numeric run id.
+            run_id="${url}"
+            run_url="${SERVER_URL}/${REPO}/actions/runs/${run_id}"
+          elif [[ "${url}" =~ /actions/runs/([0-9]+) ]]; then
+            run_id="${BASH_REMATCH[1]}"
+            if [[ "${url}" =~ ^https?:// ]]; then
+              run_url="${url}"
+            else
+              run_url="${SERVER_URL}${url}"
+            fi
+          else
+            echo "::error::deploy_run_url must be either a numeric run ID or a URL containing '/actions/runs/<id>'." >&2
+            echo "::error::Got: ${url}" >&2
             exit 1
           fi
-          for name in server env; do
-            case "${name}" in
-              server) val="${SERVER}" ;;
-              env) val="${ENV_NAME}" ;;
-            esac
-            if ! [[ "${val}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]; then
-              echo "::error::${name} name must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\$; got ${val}" >&2
-              exit 1
-            fi
-          done
-          echo "Inputs validated: server=${SERVER} env=${ENV_NAME} run_id=${RUN_ID}"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          echo "run_url=${run_url}" >> "$GITHUB_OUTPUT"
+          echo "Parsed run_id=${run_id} run_url=${run_url}"
 
       - name: Checkout main
         uses: actions/checkout@v4
@@ -99,40 +100,55 @@ jobs:
         id: download
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ inputs.run_id }}
-          SERVER: ${{ inputs.server_name }}
-          ENV_NAME: ${{ inputs.environment }}
+          RUN_ID: ${{ steps.parse.outputs.run_id }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          artifact_name="mcp-endpoint-${SERVER}-${ENV_NAME}"
-          echo "Downloading artifact ${artifact_name} from ${REPO} run ${RUN_ID}"
+          # List the run's artifacts first; pick the one whose name starts
+          # with 'mcp-endpoint-'. This avoids asking the operator to type
+          # the server name and environment — we discover both from the
+          # artifact name + JSON body.
+          echo "Listing artifacts for ${REPO} run ${RUN_ID}"
+          artifact_json="$(gh api "/repos/${REPO}/actions/runs/${RUN_ID}/artifacts")"
+          artifact_name="$(echo "${artifact_json}" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          names = [a['name'] for a in data.get('artifacts', []) if a['name'].startswith('mcp-endpoint-')]
+          if not names:
+              print('NONE', file=sys.stderr)
+              sys.exit(1)
+          print(names[0])
+          ")"
+          if [ -z "${artifact_name}" ] || [ "${artifact_name}" = "NONE" ]; then
+            echo "::error::No mcp-endpoint-* artifact found on run ${RUN_ID}." >&2
+            echo "::error::Check that the deploy-mcp-server.yml run completed successfully and the artifact hasn't expired." >&2
+            exit 1
+          fi
+          echo "Found artifact: ${artifact_name}"
           if ! gh run download "${RUN_ID}" \
               --repo "${REPO}" \
               --name "${artifact_name}" \
               --dir /tmp/endpoint-artifact; then
-            echo "::error::Failed to download artifact ${artifact_name}." >&2
-            echo "::error::Check that:" >&2
-            echo "::error::  - run_id ${RUN_ID} is correct (from the deploy Actions URL)" >&2
-            echo "::error::  - the deploy-mcp-server.yml run completed successfully" >&2
-            echo "::error::  - the artifact name matches mcp-endpoint-<server>-<env>" >&2
-            echo "::error::  - the artifact hasn't expired (90-day retention)" >&2
+            echo "::error::Failed to download artifact ${artifact_name} from run ${RUN_ID}." >&2
             exit 1
           fi
           ls -la /tmp/endpoint-artifact
           echo "artifact_path=/tmp/endpoint-artifact/endpoint.json" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${artifact_name}" >> "$GITHUB_OUTPUT"
 
       - name: Merge into config/endpoints.yaml
         env:
           ARTIFACT_PATH: ${{ steps.download.outputs.artifact_path }}
-          SERVER: ${{ inputs.server_name }}
-          ENV_NAME: ${{ inputs.environment }}
-          RUN_ID: ${{ inputs.run_id }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.run_id }}
+          ARTIFACT_NAME: ${{ steps.download.outputs.artifact_name }}
+          RUN_URL: ${{ steps.parse.outputs.run_url }}
         run: |
           set -euo pipefail
+          # Derive (server, env) from the artifact name (mcp-endpoint-<server>-<env>)
+          # and validate them against the artifact body so we never trust operator
+          # input — the artifact is the source of truth.
           python3 - <<PYEOF
           import json
+          import re
           import sys
           from pathlib import Path
           sys.path.insert(0, "scripts/ci")
@@ -143,9 +159,18 @@ jobs:
               if key not in artifact:
                   print(f"::error::artifact missing key {key!r}", file=sys.stderr)
                   sys.exit(1)
-          if artifact["name"] != "${SERVER}":
+
+          # Artifact name shape: mcp-endpoint-<server>-<env>
+          m = re.match(r"^mcp-endpoint-([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})-([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})$",
+                       "${ARTIFACT_NAME}")
+          if not m:
+              print(f"::error::artifact name ${ARTIFACT_NAME!r} doesn't match mcp-endpoint-<server>-<env>", file=sys.stderr)
+              sys.exit(1)
+          name_from_artifact, env_from_artifact = m.group(1), m.group(2)
+
+          if artifact["name"] != name_from_artifact:
               print(
-                  f"::error::artifact name={artifact['name']!r} != server=${SERVER}",
+                  f"::error::artifact body name={artifact['name']!r} != artifact-name server={name_from_artifact!r}",
                   file=sys.stderr,
               )
               sys.exit(1)
@@ -154,13 +179,13 @@ jobs:
           data = reg.update(
               data,
               server=artifact["name"],
-              env="${ENV_NAME}",
+              env=env_from_artifact,
               mcp_url=artifact["mcp_url"],
               health=artifact["health"],
               last_run="${RUN_URL}",
           )
           reg.write("config/endpoints.yaml", data)
-          print(f"Updated config/endpoints.yaml for ${SERVER}/${ENV_NAME}")
+          print(f"Updated config/endpoints.yaml for {name_from_artifact}/{env_from_artifact}")
           PYEOF
           echo "--- updated config/endpoints.yaml ---"
           cat config/endpoints.yaml
@@ -183,11 +208,19 @@ jobs:
         if: steps.changed.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SERVER: ${{ inputs.server_name }}
-          ENV_NAME: ${{ inputs.environment }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.run_id }}
+          ARTIFACT_NAME: ${{ steps.download.outputs.artifact_name }}
+          RUN_URL: ${{ steps.parse.outputs.run_url }}
         run: |
           set -euo pipefail
+          # Derive server+env from the artifact name again so we don't
+          # depend on operator-provided values for the PR title.
+          if [[ "${ARTIFACT_NAME}" =~ ^mcp-endpoint-([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})-([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})$ ]]; then
+              SERVER="${BASH_REMATCH[1]}"
+              ENV_NAME="${BASH_REMATCH[2]}"
+          else
+              echo "::error::artifact name ${ARTIFACT_NAME} doesn't match expected shape" >&2
+              exit 1
+          fi
           timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           branch="endpoints/${SERVER}-${ENV_NAME}-${timestamp}"
           git checkout -b "${branch}"

@@ -11,8 +11,13 @@ repos:
   - repo: local
     hooks:
       - id: ruff-check
-        name: ruff check (servers/google_workspace + runtime)
-        entry: .venv/bin/ruff check servers/google_workspace/ runtime/
+        name: ruff check (tests + servers/google_workspace + runtime)
+        # Covers tests/, servers/google_workspace/, and runtime/.
+        # Wider than the CI's `ruff check .` would be — we only own
+        # these three trees; the rest is duffel + legacy that may
+        # have its own lint state. Pre-commit must be the green-
+        # before-push gate for code we're touching.
+        entry: .venv/bin/ruff check tests/ servers/google_workspace/ runtime/
         language: system
         pass_filenames: false
         require_serial: true

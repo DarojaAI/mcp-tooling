@@ -36,6 +36,7 @@ setup() {
 servers:
   google-workspace:
     dev:
+      shape: self_hosted
       mcp_url: http://203.0.113.20:8766/mcp
       health: http://203.0.113.20:8766/healthz
       last_deployed: 2026-06-23T20:35:12Z

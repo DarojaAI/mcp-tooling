@@ -32,16 +32,29 @@ Two-server example (also tests/ci/test_endpoint_registry.py::test_example):
     servers:
       duffel:
         dev:
+          shape: self_hosted
           mcp_url: http://203.0.113.10:8765/mcp
           health: http://203.0.113.10:8765/healthz
           last_deployed: 2026-06-23T20:35:12Z
           last_run: https://github.com/DarojaAI/mcp-tooling/actions/runs/12345
       google-workspace:
         dev:
+          shape: self_hosted
           mcp_url: http://203.0.113.20:8766/mcp
           health: http://203.0.113.20:8766/healthz
           last_deployed: 2026-06-23T20:40:01Z
           last_run: https://github.com/DarojaAI/mcp-tooling/actions/runs/12346
+      trivago:
+        dev:
+          shape: remote_mcp
+          transport: streamable-http
+          mcp_url: https://mcp.trivago.com/mcp
+          last_deployed: 2026-06-27T16:30:00Z
+          last_run: https://github.com/DarojaAI/mcp-tooling/actions/runs/12347
+
+Shape 2 (remote_mcp) entries do not carry a `health` URL — the vendor
+owns the server and exposes whatever health probe they ship; we don't
+fabricate one. `mcp_url` is the only required URL for Shape 2.
 """
 
 from __future__ import annotations
@@ -71,15 +84,36 @@ FILE_HEADER = """\
 """
 
 # Canonical key ordering. Anything else gets sorted alphabetically after.
-KEY_ORDER = ("mcp_url", "health", "last_deployed", "last_run")
+KEY_ORDER = ("shape", "transport", "mcp_url", "health", "last_deployed", "last_run")
 
 # Schema validation per (server, env) entry.
-_REQUIRED_KEYS = {"mcp_url", "health", "last_deployed"}
-_ALLOWED_KEYS = set(KEY_ORDER)
+#
+# Shape 1 (self_hosted): the deploy workflow provisions a Hetzner VM,
+# installs the server, and writes endpoint.json with name/port/ipv4/base_url/mcp_url/health.
+# `health` is a /healthz probe on the same host; both are required.
+#
+# Shape 2 (remote_mcp): the vendor hosts the server. The deploy workflow
+# just writes endpoint.json with name/url/transport — no host, no
+# health probe we control. `shape: remote_mcp` is required; `health` is
+# not (vendors don't all expose one). `transport` defaults to
+# streamable-http if absent.
+_REQUIRED_KEYS_SELF_HOSTED = {"shape", "mcp_url", "health", "last_deployed"}
+_REQUIRED_KEYS_REMOTE_MCP = {"shape", "mcp_url", "last_deployed"}
+_ALLOWED_KEYS_SELF_HOSTED = {"shape", "mcp_url", "health", "last_deployed", "last_run"}
+_ALLOWED_KEYS_REMOTE_MCP = {
+    "shape",
+    "transport",
+    "mcp_url",
+    "health",
+    "last_deployed",
+    "last_run",
+}
 
 # Sanity constraints for the values we accept.
 _URL_RE = re.compile(r"^https?://[^\s]+$")
 _ISO_8601_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+_SHAPE_RE = re.compile(r"^(self_hosted|remote_mcp)$")
+_TRANSPORT_RE = re.compile(r"^(streamable-http|stdio)$")
 
 
 class EndpointRegistryError(ValueError):
@@ -153,20 +187,46 @@ def update(
     server: str,
     env: str,
     mcp_url: str,
-    health: str,
+    shape: str = "self_hosted",
+    health: str | None = None,
+    transport: str | None = None,
     last_run: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Insert or update one (server, env) entry. Returns a new dict (the
     input is not mutated). Existing entries for other (server, env) pairs
     are preserved unchanged.
+
+    For Shape 1 (self_hosted), `health` is required — the deploy workflow
+    writes a `/healthz` URL on the same host as `mcp_url`.
+
+    For Shape 2 (remote_mcp), `health` is optional — the vendor controls
+    the server and may or may not expose a health endpoint. `transport`
+    is optional (defaults to streamable-http when omitted); it is only
+    persisted for Shape 2 entries since Shape 1 servers all use
+    streamable-http via the install script.
     """
     _validate_name(server, "server")
     _validate_name(env, "env")
+    if not _SHAPE_RE.match(shape):
+        raise EndpointRegistryError(
+            f"shape must be one of self_hosted, remote_mcp; got {shape!r}"
+        )
     if not _URL_RE.match(mcp_url):
         raise EndpointRegistryError(f"mcp_url is not a valid http(s) URL: {mcp_url!r}")
-    if not _URL_RE.match(health):
+    if health is not None and not _URL_RE.match(health):
         raise EndpointRegistryError(f"health is not a valid http(s) URL: {health!r}")
+    if transport is not None and not _TRANSPORT_RE.match(transport):
+        raise EndpointRegistryError(
+            f"transport must be one of streamable-http, stdio; got {transport!r}"
+        )
+    if shape == "self_hosted" and health is None:
+        # Self-hosted servers always expose /healthz; reject missing
+        # health rather than silently write an entry that breaks the
+        # gateway's discovery contract.
+        raise EndpointRegistryError(
+            "health is required for shape=self_hosted (no host probe to omit)"
+        )
 
     # `timezone.utc` (not `datetime.UTC`) so we stay 3.10-compatible.
     timestamp = (now or datetime.now(timezone.utc)).strftime(  # noqa: UP017
@@ -177,11 +237,15 @@ def update(
         # anyway so future format tweaks can't silently break the contract.
         raise EndpointRegistryError(f"timestamp {timestamp!r} is not ISO-8601 'Z'")
 
-    new_entry = {
+    new_entry: dict[str, Any] = {
+        "shape": shape,
         "mcp_url": mcp_url,
-        "health": health,
         "last_deployed": timestamp,
     }
+    if health is not None:
+        new_entry["health"] = health
+    if transport is not None:
+        new_entry["transport"] = transport
     if last_run is not None:
         if not _URL_RE.match(last_run):
             raise EndpointRegistryError(f"last_run is not a valid http(s) URL: {last_run!r}")
@@ -271,7 +335,15 @@ def _coerce_timestamps_in_place(servers: dict[str, Any]) -> None:
 
 
 def _validate(data: dict[str, Any], *, source: str = "<registry>") -> None:
-    """Schema-check the registry. Raises EndpointRegistryError on the first failure."""
+    """Schema-check the registry. Raises EndpointRegistryError on the first failure.
+
+    Schema is shape-aware: Shape 1 (self_hosted) entries require a
+    `health` URL on the same host as `mcp_url`; Shape 2 (remote_mcp)
+    entries do not, but require `shape` and `mcp_url`. The `shape`
+    field is mandatory on every entry — there is no implicit default,
+    because misclassifying a Shape 2 entry as Shape 1 would have the
+    gateway probe a vendor-controlled /healthz that doesn't exist.
+    """
     if not isinstance(data, dict):
         raise EndpointRegistryError(f"{source}: top-level must be a mapping")
     servers = data.get("servers")
@@ -289,12 +361,30 @@ def _validate(data: dict[str, Any], *, source: str = "<registry>") -> None:
                 raise EndpointRegistryError(
                     f"{source}: servers[{server!r}][{env!r}] must be a mapping"
                 )
-            missing = _REQUIRED_KEYS - entry.keys()
+            shape = entry.get("shape")
+            if shape is None:
+                raise EndpointRegistryError(
+                    f"{source}: servers[{server!r}][{env!r}] missing required key 'shape'"
+                )
+            if not _SHAPE_RE.match(shape):
+                raise EndpointRegistryError(
+                    f"{source}: servers[{server!r}][{env!r}].shape must be one of "
+                    f"self_hosted, remote_mcp; got {shape!r}"
+                )
+
+            if shape == "self_hosted":
+                required = _REQUIRED_KEYS_SELF_HOSTED
+                allowed = _ALLOWED_KEYS_SELF_HOSTED
+            else:  # remote_mcp
+                required = _REQUIRED_KEYS_REMOTE_MCP
+                allowed = _ALLOWED_KEYS_REMOTE_MCP
+
+            missing = required - entry.keys()
             if missing:
                 raise EndpointRegistryError(
                     f"{source}: servers[{server!r}][{env!r}] missing keys: {sorted(missing)}"
                 )
-            extra = set(entry.keys()) - _ALLOWED_KEYS
+            extra = set(entry.keys()) - allowed
             if extra:
                 raise EndpointRegistryError(
                     f"{source}: servers[{server!r}][{env!r}] has unknown keys: {sorted(extra)}"
@@ -303,9 +393,14 @@ def _validate(data: dict[str, Any], *, source: str = "<registry>") -> None:
                 raise EndpointRegistryError(
                     f"{source}: servers[{server!r}][{env!r}].mcp_url is not a valid URL"
                 )
-            if not _URL_RE.match(entry["health"]):
+            if "health" in entry and not _URL_RE.match(entry["health"]):
                 raise EndpointRegistryError(
                     f"{source}: servers[{server!r}][{env!r}].health is not a valid URL"
+                )
+            if "transport" in entry and not _TRANSPORT_RE.match(entry["transport"]):
+                raise EndpointRegistryError(
+                    f"{source}: servers[{server!r}][{env!r}].transport must be one of "
+                    f"streamable-http, stdio; got {entry['transport']!r}"
                 )
             # last_deployed may be either a string or a datetime that
             # _coerce_timestamps_in_place hasn't seen yet (e.g. when

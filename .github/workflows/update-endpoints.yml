@@ -139,7 +139,22 @@ jobs:
           import endpoint_registry as reg
 
           artifact = json.loads(Path("${ARTIFACT_PATH}").read_text())
-          for key in ("name", "port", "ipv4", "mcp_url", "health"):
+          # Validate the artifact shape. Shape 1 needs ipv4 + health
+          # (because we deployed to a VM); Shape 2 needs url/transport
+          # (because we just pointed at the vendor). Reject anything
+          # that doesn't carry an explicit shape.
+          if "shape" not in artifact:
+              print(
+                  "::error::artifact missing key 'shape' — old artifact format?",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          shape = artifact["shape"]
+          if shape not in ("self_hosted", "remote_mcp"):
+              print(f"::error::artifact shape={shape!r} not recognized", file=sys.stderr)
+              sys.exit(1)
+          required_common = ("name", "mcp_url")
+          for key in required_common:
               if key not in artifact:
                   print(f"::error::artifact missing key {key!r}", file=sys.stderr)
                   sys.exit(1)
@@ -149,18 +164,34 @@ jobs:
                   file=sys.stderr,
               )
               sys.exit(1)
+          if shape == "self_hosted":
+              for key in ("port", "ipv4", "health"):
+                  if key not in artifact:
+                      print(f"::error::artifact (self_hosted) missing key {key!r}", file=sys.stderr)
+                      sys.exit(1)
+          else:  # remote_mcp
+              if "url" not in artifact:
+                  print(f"::error::artifact (remote_mcp) missing key 'url'", file=sys.stderr)
+                  sys.exit(1)
 
           data = reg.load("config/endpoints.yaml")
-          data = reg.update(
-              data,
+          update_kwargs = dict(
               server=artifact["name"],
               env="${ENV_NAME}",
               mcp_url=artifact["mcp_url"],
-              health=artifact["health"],
+              shape=shape,
               last_run="${RUN_URL}",
           )
+          if shape == "self_hosted":
+              update_kwargs["health"] = artifact["health"]
+          else:
+              # transport is optional in the artifact; only forward if present
+              if "transport" in artifact:
+                  update_kwargs["transport"] = artifact["transport"]
+
+          data = reg.update(data, **update_kwargs)
           reg.write("config/endpoints.yaml", data)
-          print(f"Updated config/endpoints.yaml for ${SERVER}/${ENV_NAME}")
+          print(f"Updated config/endpoints.yaml for ${SERVER}/${ENV_NAME} (shape={shape})")
           PYEOF
           echo "--- updated config/endpoints.yaml ---"
           cat config/endpoints.yaml

@@ -27,6 +27,40 @@ repo. That's the trivago case.
 The configuration has to support both, and ideally *make the right
 choice obvious* from the environment variables alone.
 
+## Wire-up status
+
+| Shape | Description | Wired in mcp-tooling? | Reference |
+|-------|-------------|----------------------|-----------|
+| 1 | Self-hosted capability adapter | ✅ via `config/servers/<name>.yaml` | PR #44, #47, #48 |
+| 2 | Remote MCP, no auth | ✅ via `config/servers/<name>.yaml` (`shape: remote_mcp`) | This PR |
+| 3 | Remote MCP, API key / bearer | ⚠️ schema documented, not wired | follow-up |
+| 4 | Remote MCP, OAuth refresh | ⚠️ schema documented, not wired | follow-up |
+| 5 | Subprocess wrap (Shape 1 + stdio) | ⚠️ schema documented, not wired | follow-up |
+
+Shape 2 is the only remote shape that ships today. It works for any
+vendor that publishes a public MCP endpoint without auth (trivago,
+DeepL MCP, Notion MCP without auth, etc.). Shapes 3–5 require either
+secret-store wiring (bearer/API-key), OAuth refresh logic, or
+subprocess plumbing — each is a separate, small PR.
+
+### Adding a Shape 2 server (today)
+
+1. Drop a 5-line YAML at `config/servers/<vendor>.yaml`:
+   ```yaml
+   shape: remote_mcp
+   name: <vendor>
+   url: https://mcp.<vendor>.com/mcp
+   transport: streamable-http
+   ```
+2. Run `deploy-mcp-server.yml` with `server_name=<vendor>`. The
+   workflow skips Terraform/VM provisioning and writes an
+   `endpoint.json` artifact directly from the YAML.
+3. Run `update-endpoints.yml` to merge the artifact into
+   `config/endpoints.yaml`. The registry entry carries
+   `shape: remote_mcp` and is consumed by the OpenClaw gateway.
+4. The OpenClaw gateway picks up the URL via the same discovery path
+   it uses for Shape 1 servers — no gateway changes required.
+
 ## The integration-shape taxonomy
 
 Five shapes, ranked by how much code we write in mcp-tooling:

@@ -64,8 +64,11 @@ jobs:
       hetzner_ssh_key_name: ${{ steps.resolve.outputs.hetzner_ssh_key_name }}
       hcx_storage_url: ${{ steps.resolve.outputs.hcx_storage_url }}
       hcx_region: ${{ steps.resolve.outputs.hcx_region }}
+      mcp_server_shape: ${{ steps.resolve.outputs.mcp_server_shape }}
       mcp_server_name: ${{ steps.resolve.outputs.mcp_server_name }}
       mcp_server_port: ${{ steps.resolve.outputs.mcp_server_port }}
+      mcp_server_url: ${{ steps.resolve.outputs.mcp_server_url }}
+      mcp_server_transport: ${{ steps.resolve.outputs.mcp_server_transport }}
       mcp_server_secrets: ${{ steps.resolve.outputs.mcp_server_secrets }}
       mcp_server_optional_secrets: ${{ steps.resolve.outputs.mcp_server_optional_secrets }}
       mcp_server_oauth_scope_guard: ${{ steps.resolve.outputs.mcp_server_oauth_scope_guard }}
@@ -122,20 +125,50 @@ jobs:
           with open(f"config/servers/{server_name}.yaml") as f:
               cfg = yaml.safe_load(f) or {}
 
+          # Shape defaults to self_hosted so existing YAML files keep
+          # working without modification. Shape 2 (remote_mcp) requires
+          # a URL and the install-script-bound fields (port, secrets,
+          # package) are ignored.
+          shape = cfg.get("shape", "self_hosted")
+          if shape not in ("self_hosted", "remote_mcp"):
+              print(f"::error::config/servers/{server_name}.yaml: shape must be 'self_hosted' or 'remote_mcp'; got {shape!r}", file=sys.stderr)
+              sys.exit(1)
+
           name = cfg.get("name", server_name)
-          port = cfg.get("port")
+          url = cfg.get("url")
+          transport = cfg.get("transport", "streamable-http")
+
+          # Shape-specific field validation. Self-hosted needs a port
+          # (the install script binds to it). Remote_mcp needs a URL.
+          # These are mutually exclusive at the deploy-job level —
+          # `apply`/`deploy` are skipped for remote_mcp.
+          if shape == "self_hosted":
+              port = cfg.get("port")
+              if port is None:
+                  print(f"::error::config/servers/{server_name}.yaml missing 'port' (required for shape=self_hosted)", file=sys.stderr)
+                  sys.exit(1)
+          else:  # remote_mcp
+              if not url:
+                  print(f"::error::config/servers/{server_name}.yaml missing 'url' (required for shape=remote_mcp)", file=sys.stderr)
+                  sys.exit(1)
+              if not (isinstance(url, str) and url.startswith(("http://", "https://"))):
+                  print(f"::error::config/servers/{server_name}.yaml: url must be http(s); got {url!r}", file=sys.stderr)
+                  sys.exit(1)
+              port = None  # explicit: no VM, no port.
+
           secrets = cfg.get("secrets", [])
           optional = cfg.get("optional_secrets", [])
           oauth_guard = cfg.get("oauth_scope_guard", False)
           allowed_scopes = cfg.get("allowed_scopes", [])
 
-          if port is None:
-              print(f"::error::config/servers/{server_name}.yaml missing 'port'", file=sys.stderr)
-              sys.exit(1)
-
-          # Echo the per-server env vars the install script needs.
+          # Echo the per-server env vars the install script + endpoint
+          # manifest need. `port` and `url` are emitted unconditionally;
+          # downstream jobs pick the one they need based on shape.
+          print(f"mcp_server_shape={shape}")
           print(f"mcp_server_name={name}")
-          print(f"mcp_server_port={port}")
+          print(f"mcp_server_port={port if port is not None else ''}")
+          print(f"mcp_server_url={url if url is not None else ''}")
+          print(f"mcp_server_transport={transport}")
           print(f"mcp_server_secrets={' '.join(secrets)}")
           print(f"mcp_server_optional_secrets={' '.join(optional)}")
           print(f"mcp_server_oauth_scope_guard={'true' if oauth_guard else 'false'}")
@@ -153,6 +186,10 @@ jobs:
   apply:
     name: "Terraform ${{ inputs.action }}"
     needs: setup
+    # Skip the entire VM provisioning chain for Shape 2 (remote_mcp).
+    # There's no Hetzner VM to provision; the gateway just points at the
+    # vendor's URL.
+    if: ${{ needs.setup.outputs.mcp_server_shape != 'remote_mcp' }}
     uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-terraform-apply.yml@main
     with:
       action: ${{ inputs.action }}
@@ -174,6 +211,9 @@ jobs:
   deploy:
     name: Deploy ${{ needs.setup.outputs.mcp_server_name }} to ${{ needs.setup.outputs.server_name }}
     needs: [setup, apply]
+    # Skip the install-on-VM step for Shape 2 (remote_mcp). The vendor
+    # owns the server; we just publish its URL downstream.
+    if: ${{ needs.setup.outputs.mcp_server_shape != 'remote_mcp' }}
     uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@main
     with:
       server_ip: ${{ needs.apply.outputs.server_ip }}
@@ -204,12 +244,15 @@ jobs:
 
   endpoint-manifest:
     name: Publish ${{ needs.setup.outputs.mcp_server_name }} endpoint manifest
-    needs: [setup, deploy]
+    needs: setup
     if: ${{ inputs.action != 'destroy' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
       - name: Setup SSH key
+        # Only Shape 1 needs SSH — we SCP the manifest from the VM.
+        # Shape 2 writes the manifest locally from the YAML inputs.
+        if: ${{ needs.setup.outputs.mcp_server_shape != 'remote_mcp' }}
         env:
           SSH_PRIVATE_KEY: '*** secrets.SSH_PRIVATE_KEY }}'
         run: |
@@ -219,7 +262,8 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ needs.apply.outputs.server_ip }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Fetch endpoint manifest from VM
+      - name: Fetch endpoint manifest from VM (Shape 1)
+        if: ${{ needs.setup.outputs.mcp_server_shape != 'remote_mcp' }}
         env:
           SERVER_IP: ${{ needs.apply.outputs.server_ip }}
           MCP_SERVER_NAME: ${{ needs.setup.outputs.mcp_server_name }}
@@ -256,6 +300,67 @@ jobs:
               sys.exit(1)
           PYEOF
           echo "Manifest for ${MCP_SERVER_NAME} in ${ENV_NAME}:"
+          cat "${LOCAL}"
+
+      - name: Render endpoint manifest from YAML (Shape 2)
+        # Shape 2 has no VM — render endpoint.json locally from the
+        # config/servers/<name>.yaml inputs so the artifact contract
+        # is identical to Shape 1 (downstream consumers don't care
+        # which shape produced it).
+        if: ${{ needs.setup.outputs.mcp_server_shape == 'remote_mcp' }}
+        env:
+          MCP_SERVER_NAME: ${{ needs.setup.outputs.mcp_server_name }}
+          MCP_SERVER_URL: ${{ needs.setup.outputs.mcp_server_url }}
+          MCP_SERVER_TRANSPORT: ${{ needs.setup.outputs.mcp_server_transport }}
+        run: |
+          set -euo pipefail
+          LOCAL="/tmp/endpoint.json"
+          # Render via Python so the YAML heredoc rules don't conflict
+          # with the JSON braces. The output is byte-identical to what
+          # the Shape 1 install script writes (modulo absent port/ipv4
+          # fields, which the schema documents as optional for Shape 2).
+          MCP_SERVER_NAME="${MCP_SERVER_NAME}" \
+          MCP_SERVER_URL="${MCP_SERVER_URL}" \
+          MCP_SERVER_TRANSPORT="${MCP_SERVER_TRANSPORT}" \
+          python3 - <<'PYEOF'
+          import json
+          import os
+          import sys
+          from datetime import datetime, timezone
+
+          name = os.environ["MCP_SERVER_NAME"]
+          url = os.environ["MCP_SERVER_URL"]
+          transport = os.environ["MCP_SERVER_TRANSPORT"]
+          deployed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          payload = {
+              "name": name,
+              "shape": "remote_mcp",
+              "transport": transport,
+              "url": url,
+              "mcp_url": url,
+              "deployed_at": deployed_at,
+          }
+
+          with open("/tmp/endpoint.json", "w") as f:
+              json.dump(payload, f, indent=2)
+              f.write("\n")
+
+          # Validate the payload right where we wrote it — fail fast if
+          # any required key is missing. Mirrors the Shape 1 validation
+          # block above so the artifact contract is identical.
+          for key in ("name", "shape", "mcp_url", "deployed_at"):
+              if key not in payload:
+                  print(f"::error::endpoint.json missing required key '{key}'", file=sys.stderr)
+                  sys.exit(1)
+          if payload["name"] != name:
+              print(f"::error::endpoint.json name is {payload['name']!r}, expected {name!r}", file=sys.stderr)
+              sys.exit(1)
+          if payload["shape"] != "remote_mcp":
+              print(f"::error::endpoint.json shape is {payload['shape']!r}, expected 'remote_mcp'", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+          echo "Manifest for ${MCP_SERVER_NAME} (Shape 2):"
           cat "${LOCAL}"
 
       - name: Upload manifest artifact

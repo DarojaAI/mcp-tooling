@@ -1,0 +1,30 @@
+# Per-server config for the trivago MCP server.
+# Consumed by .github/workflows/deploy-mcp-server.yml.
+#
+# Shape 2 — remote MCP, no auth. The vendor (trivago) publishes a public
+# MCP server at https://mcp.trivago.com/mcp; we just point the gateway
+# at it. No Hetzner VM is provisioned, no install script runs, no port
+# is opened at the firewall. The deploy workflow detects `shape:
+# remote_mcp` and skips the terraform/apply/deploy chain entirely,
+# writing endpoint.json directly from these inputs.
+#
+# Schema is documented in docs/integrations/mcp-integration-shapes.md
+# and .github/workflows/deploy-mcp-server.yml (the `setup` job's
+# per-server YAML parser).
+#
+# Required fields for Shape 2:
+#   shape: remote_mcp
+#   url:   The vendor's MCP endpoint. Must be http(s)://.
+#
+# Optional fields for Shape 2:
+#   transport: streamable-http (default) or stdio. Most vendors ship
+#              streamable-http today; stdio is rare for remote servers.
+#
+# Fields NOT used for Shape 2 (Shape 1 only): package, port, secrets,
+# optional_secrets, oauth_scope_guard, allowed_scopes. The deploy
+# workflow ignores them when shape=remote_mcp.
+
+shape: remote_mcp
+name: trivago
+url: https://mcp.trivago.com/mcp
+transport: streamable-http

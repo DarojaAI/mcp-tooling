@@ -95,6 +95,7 @@ def test_update_inserts_first_entry():
     data = reg.empty_registry()
     out = reg.update(
         data,
+        shape="self_hosted",
         server="google-workspace",
         env="dev",
         mcp_url="http://203.0.113.20:8766/mcp",
@@ -106,6 +107,7 @@ def test_update_inserts_first_entry():
         "servers": {
             "google-workspace": {
                 "dev": {
+                    "shape": "self_hosted",
                     "mcp_url": "http://203.0.113.20:8766/mcp",
                     "health": "http://203.0.113.20:8766/healthz",
                     "last_deployed": "2026-06-23T20:35:12Z",
@@ -152,6 +154,7 @@ def test_update_preserves_sibling_entries_across_servers():
     )
     data = reg.update(
         data,
+        shape="self_hosted",
         server="google-workspace",
         env="dev",
         mcp_url="http://203.0.113.20:8766/mcp",
@@ -179,6 +182,7 @@ def test_update_preserves_sibling_entries_across_envs():
     )
     data = reg.update(
         data,
+        shape="self_hosted",
         server="duffel",
         env="prod",
         mcp_url="http://198.51.100.5:8765/mcp",
@@ -385,6 +389,7 @@ def test_validate_rejects_missing_required_key(tmp_path):
         "servers:\n"
         "  duffel:\n"
         "    dev:\n"
+        "      shape: self_hosted\n"
         "      mcp_url: http://x/mcp\n"
         "      # missing health + last_deployed\n"
     )
@@ -398,6 +403,7 @@ def test_validate_rejects_unknown_key(tmp_path):
         "servers:\n"
         "  duffel:\n"
         "    dev:\n"
+        "      shape: self_hosted\n"
         "      mcp_url: http://x/mcp\n"
         "      health: http://x/healthz\n"
         "      last_deployed: 2026-06-23T20:35:12Z\n"
@@ -413,6 +419,7 @@ def test_validate_rejects_bad_last_deployed_format(tmp_path):
         "servers:\n"
         "  duffel:\n"
         "    dev:\n"
+        "      shape: self_hosted\n"
         "      mcp_url: http://x/mcp\n"
         "      health: http://x/healthz\n"
         "      last_deployed: '2026-06-23 20:35:12'\n"  # space, not 'T'
@@ -430,6 +437,187 @@ def test_validate_rejects_non_mapping_entry(tmp_path):
     )
     with pytest.raises(reg.EndpointRegistryError, match="must be a mapping"):
         reg.load(p)
+
+
+# ---------------------------------------------------------------------------
+# Shape 2 (remote_mcp) — config-only entries, no /healthz we control
+# ---------------------------------------------------------------------------
+
+
+def test_update_inserts_remote_mcp_entry():
+    """Shape 2 entries require shape + mcp_url + last_deployed; health is optional."""
+    data = reg.empty_registry()
+    out = reg.update(
+        data,
+        server="trivago",
+        env="dev",
+        mcp_url="https://mcp.trivago.com/mcp",
+        shape="remote_mcp",
+        transport="streamable-http",
+        last_run="https://github.com/DarojaAI/mcp-tooling/actions/runs/12347",
+        now=_frozen_now(),
+    )
+    assert out == {
+        "servers": {
+            "trivago": {
+                "dev": {
+                    "shape": "remote_mcp",
+                    "transport": "streamable-http",
+                    "mcp_url": "https://mcp.trivago.com/mcp",
+                    "last_deployed": "2026-06-23T20:35:12Z",
+                    "last_run": "https://github.com/DarojaAI/mcp-tooling/actions/runs/12347",
+                }
+            }
+        }
+    }
+
+
+def test_update_remote_mcp_defaults_transport_when_omitted():
+    """If the caller doesn't pass transport, the entry simply omits it
+    (we never persist a default — absence means 'whatever the vendor shipped')."""
+    data = reg.update(
+        reg.empty_registry(),
+        server="trivago",
+        env="dev",
+        mcp_url="https://mcp.trivago.com/mcp",
+        shape="remote_mcp",
+        now=_frozen_now(),
+    )
+    assert "transport" not in data["servers"]["trivago"]["dev"]
+
+
+def test_update_remote_mcp_health_optional():
+    """Vendors that expose a health probe can record it; vendors that
+    don't, won't. Both must validate."""
+    with_health = reg.update(
+        reg.empty_registry(),
+        server="trivago",
+        env="dev",
+        mcp_url="https://mcp.trivago.com/mcp",
+        shape="remote_mcp",
+        health="https://mcp.trivago.com/healthz",
+        now=_frozen_now(),
+    )
+    assert with_health["servers"]["trivago"]["dev"]["health"] == "https://mcp.trivago.com/healthz"
+
+    without_health = reg.update(
+        reg.empty_registry(),
+        server="trivago",
+        env="dev",
+        mcp_url="https://mcp.trivago.com/mcp",
+        shape="remote_mcp",
+        now=_frozen_now(),
+    )
+    assert "health" not in without_health["servers"]["trivago"]["dev"]
+
+
+def test_update_self_hosted_requires_health():
+    """Defense in depth: callers should not be able to write a Shape 1
+    entry without a /healthz URL — the gateway would probe it and 404."""
+    with pytest.raises(
+        reg.EndpointRegistryError,
+        match="health is required for shape=self_hosted",
+    ):
+        reg.update(
+            reg.empty_registry(),
+            server="duffel",
+            env="dev",
+            mcp_url="http://x/mcp",
+            shape="self_hosted",
+            now=_frozen_now(),
+        )
+
+
+def test_update_rejects_unknown_shape():
+    with pytest.raises(reg.EndpointRegistryError, match="shape must be one of"):
+        reg.update(
+            reg.empty_registry(),
+            server="bogus",
+            env="dev",
+            mcp_url="https://x/mcp",
+            shape="edge_case_mcp",
+            now=_frozen_now(),
+        )
+
+
+def test_update_rejects_bad_transport():
+    with pytest.raises(reg.EndpointRegistryError, match="transport must be one of"):
+        reg.update(
+            reg.empty_registry(),
+            server="trivago",
+            env="dev",
+            mcp_url="https://mcp.trivago.com/mcp",
+            shape="remote_mcp",
+            transport="grpc",
+            now=_frozen_now(),
+        )
+
+
+def test_validate_loads_remote_mcp_yaml(tmp_path):
+    """End-to-end: write a Shape 2 entry via YAML, load it, round-trip."""
+    p = tmp_path / "endpoints.yaml"
+    p.write_text(
+        "servers:\n"
+        "  trivago:\n"
+        "    dev:\n"
+        "      shape: remote_mcp\n"
+        "      transport: streamable-http\n"
+        "      mcp_url: https://mcp.trivago.com/mcp\n"
+        "      last_deployed: 2026-06-23T20:35:12Z\n"
+    )
+    data = reg.load(p)
+    assert data["servers"]["trivago"]["dev"]["shape"] == "remote_mcp"
+    assert data["servers"]["trivago"]["dev"]["mcp_url"] == "https://mcp.trivago.com/mcp"
+
+
+def test_validate_remote_mcp_rejects_health_must_be_url(tmp_path):
+    """If a Shape 2 entry carries a health URL, it must parse."""
+    p = tmp_path / "bad.yaml"
+    p.write_text(
+        "servers:\n"
+        "  trivago:\n"
+        "    dev:\n"
+        "      shape: remote_mcp\n"
+        "      mcp_url: https://mcp.trivago.com/mcp\n"
+        "      health: 'not-a-url'\n"
+        "      last_deployed: 2026-06-23T20:35:12Z\n"
+    )
+    with pytest.raises(reg.EndpointRegistryError, match=r"\.health is not a valid URL"):
+        reg.load(p)
+
+
+def test_validate_rejects_entry_without_shape(tmp_path):
+    """shape is mandatory on every entry — there is no implicit default.
+    Misclassifying a Shape 2 entry as Shape 1 would have the gateway
+    probe a vendor-controlled /healthz that doesn't exist."""
+    p = tmp_path / "bad.yaml"
+    p.write_text(
+        "servers:\n"
+        "  trivago:\n"
+        "    dev:\n"
+        "      mcp_url: https://mcp.trivago.com/mcp\n"
+        "      last_deployed: 2026-06-23T20:35:12Z\n"
+    )
+    with pytest.raises(reg.EndpointRegistryError, match="missing required key 'shape'"):
+        reg.load(p)
+
+
+def test_dump_then_load_remote_mcp_round_trip(tmp_path):
+    """Write via update(), reload via load(), assert equal."""
+    p = tmp_path / "endpoints.yaml"
+    data = reg.update(
+        reg.empty_registry(),
+        server="trivago",
+        env="dev",
+        mcp_url="https://mcp.trivago.com/mcp",
+        shape="remote_mcp",
+        transport="streamable-http",
+        last_run="https://github.com/DarojaAI/mcp-tooling/actions/runs/1",
+        now=_frozen_now(),
+    )
+    reg.write(p, data)
+    reloaded = reg.load(p)
+    assert reloaded == data
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +639,7 @@ def registry_file(tmp_path) -> Path:
     )
     data = reg.update(
         data,
+        shape="self_hosted",
         server="google-workspace",
         env="dev",
         mcp_url="http://203.0.113.20:8766/mcp",
@@ -560,6 +749,7 @@ def test_cli_list_envs_requires_server(registry_file):
 def test_format_entry_orders_keys_canonically():
     entry = {
         "last_run": "http://x/run",
+        "shape": "self_hosted",
         "mcp_url": "http://x/mcp",
         "last_deployed": "2026-06-23T20:35:12Z",
         "health": "http://x/healthz",

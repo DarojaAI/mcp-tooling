@@ -9,4 +9,11 @@
 # a key is wrong or stale.
 # =============================================================================
 
-servers: {}
+servers:
+  trivago:
+    prod:
+      shape: remote_mcp
+      mcp_url: https://mcp.trivago.com/mcp
+      last_deployed: '2026-06-28T01:34:53Z'
+      transport: streamable-http
+      last_run: https://github.com/DarojaAI/mcp-tooling/actions/runs/28307636200

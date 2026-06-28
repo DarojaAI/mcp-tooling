@@ -203,16 +203,14 @@ jobs:
       location: ${{ needs.setup.outputs.location }}
       hetzner_ssh_key_name: ${{ needs.setup.outputs.hetzner_ssh_key_name }}
     secrets:
-      HETZNER_API_TOKEN: '*** secrets.HETZNER_API_TOKEN }}'
-      HCX_ACCESS_KEY: '*** secrets.HCX_ACCESS_KEY }}'
-      HCX_SECRET_KEY: '*** secrets.HCX_SECRET_KEY }}'
-      SSH_PRIVATE_KEY: '*** secrets.SSH_PRIVATE_KEY }}'
+      HETZNER_API_TOKEN: '${{ secrets.HETZNER_API_TOKEN }}'
+      HCX_ACCESS_KEY: '${{ secrets.HCX_ACCESS_KEY }}'
+      HCX_SECRET_KEY: '${{ secrets.HCX_SECRET_KEY }}'
+      SSH_PRIVATE_KEY: '${{ secrets.SSH_PRIVATE_KEY }}'
 
   deploy:
     name: Deploy ${{ needs.setup.outputs.mcp_server_name }} to ${{ needs.setup.outputs.server_name }}
     needs: [setup, apply]
-    # Skip the install-on-VM step for Shape 2 (remote_mcp). The vendor
-    # owns the server; we just publish its URL downstream.
     if: ${{ needs.setup.outputs.mcp_server_shape != 'remote_mcp' }}
     uses: DarojaAI/infra-actions/.github/workflows/reusable-hetzner-deploy.yml@main
     with:
@@ -223,24 +221,10 @@ jobs:
       install_script: scripts/deploy/install-mcp-server.sh
       health_endpoint: /healthz
       health_port: ${{ needs.setup.outputs.mcp_server_port }}
-      # Forward MCP_SERVER_* env vars + per-server secrets.
-      # The reusable deploy caller forwards these to the install script.
-      forward_env: >-
-        MCP_SERVER_NAME=${{ needs.setup.outputs.mcp_server_name }}
-        MCP_SERVER_PORT=${{ needs.setup.outputs.mcp_server_port }}
-        MCP_SERVER_SECRETS='${{ needs.setup.outputs.mcp_server_secrets }}'
-        MCP_SERVER_SCOPE_GUARD=${{ needs.setup.outputs.mcp_server_oauth_scope_guard }}
-        MCP_SERVER_ALLOWED_SCOPES=${{ needs.setup.outputs.mcp_server_allowed_scopes }}
-        MCP_SERVER_SCOPE_ENV_VAR=${{ needs.setup.outputs.mcp_server_scope_env_var }}
     secrets:
-      SSH_PRIVATE_KEY: '*** secrets.SSH_PRIVATE_KEY }}'
-      DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
-      GOOGLE_WORKSPACE_CLIENT_ID: ${{ secrets.GOOGLE_WORKSPACE_CLIENT_ID }}
-      GOOGLE_WORKSPACE_CLIENT_SECRET: '*** secrets.GOOGLE_WORKSPACE_CLIENT_SECRET }}'
-      GOOGLE_WORKSPACE_REFRESH_TOKEN: '*** secrets.GOOGLE_WORKSPACE_REFRESH_TOKEN }}'
-      AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
-      AMADEUS_CLIENT_SECRET: '*** secrets.AMADEUS_CLIENT_SECRET }}'
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       MCPTOOLING_ALLOWED_TOKENS: ${{ secrets.MCPTOOLING_ALLOWED_TOKENS }}
+      DUFFEL_API_KEY: ${{ secrets.DUFFEL_API_KEY }}
 
   endpoint-manifest:
     name: Publish ${{ needs.setup.outputs.mcp_server_name }} endpoint manifest
@@ -254,7 +238,7 @@ jobs:
         # Shape 2 writes the manifest locally from the YAML inputs.
         if: ${{ needs.setup.outputs.mcp_server_shape != 'remote_mcp' }}
         env:
-          SSH_PRIVATE_KEY: '*** secrets.SSH_PRIVATE_KEY }}'
+          SSH_PRIVATE_KEY: '${{ secrets.SSH_PRIVATE_KEY }}'
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh

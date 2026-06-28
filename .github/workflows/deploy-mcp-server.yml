@@ -283,7 +283,8 @@ jobs:
           # Validate it's parseable JSON with the expected shape.
           # Read the expected server name from the env (not the heredoc —
           # quoted heredocs don't expand, and unquoted heredocs would
-          # double-substitute GH expressions like ${{ }}).
+          # double-substitute GH expressions — GH parses $ + {{ + }} as
+          # an expression even inside run: blocks).
           EXPECTED_NAME="${MCP_SERVER_NAME}"
           python3 - "${LOCAL}" "${EXPECTED_NAME}" <<'PYEOF'
           import json, os, sys

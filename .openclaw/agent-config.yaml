@@ -1,0 +1,7 @@
+handle: "@mcp-tooling"
+contract_version: "v1"
+role: "executor"
+capabilities:
+  - "mcp-add"
+  - "mcp-troubleshoot"
+  - "mcp-rotate-token"

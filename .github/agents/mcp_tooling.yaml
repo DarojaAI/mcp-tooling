@@ -1,0 +1,55 @@
+# Projection file: mcp_tooling (runtime lane)
+# Per PLAN-agent-coordination-v0.1.md §5.2 + issue #61 (A2 Phase-2 backlog).
+# Schema authority: linux-desktop-seed/docs/contracts/AGENT-PROJECTION.md (v0).
+#
+# This is a projection file: reader-consumed by peer dispatchers and the
+# cross-agent drift-audit cron (linux-desktop-seed#2409 / A3). OpenClaw does
+# NOT read this at runtime. Runtime config lives in openclaw.json. Drift
+# between projection and runtime is acceptable as long as documented here.
+
+id: mcp_tooling
+
+display_name: "mcp-tooling (capability layer — MCP servers for OpenClaw agents)"
+
+family: runtime
+
+scope:
+  # What this agent commits to. Peer dispatchers see explicit go-aheads here.
+  - mcp-server-implementation              # duffel (travel), vm-ops, cal, stripe
+  - external-api-capability-adapters       # wrap third-party APIs as MCP tools
+  - host-operations-tooling                # systemctl/journalctl/diagnostics
+  - capability-layer-runtime               # BaseTool, registry, stdio/HTTP servers
+  - mcp-deploy-and-ci                      # scripts/ci + scripts/deploy + terraform
+
+out_of_scope:
+  # What this agent will NOT take. Callers get a rejection + peer pointer.
+  - feature-design                         # new product features
+  - architecture-decisions                 # cross-repo contract decisions
+  - production-deploys                     # terraform/Cloud Run apply without operator
+  - secrets-rotation                       # operator-only
+  - dynamic-threat-detection               # belongs to daroja_security_agent
+  - analysis-layer-intelligence            # repo/code analysis; belongs to dev_nexus
+
+peers:
+  # Adjacent / overlapping lanes. Read-side context only.
+  - daroja_coding_agent
+  - darojaai_architect
+  - dev_nexus
+  - infra_actions
+  - linux_desktop_seed
+  - openclaw_gateway
+
+escalation:
+  tier2: darojaai_architect
+  tierN: no_decaf_milan
+
+lifecycle:
+  owner: no_decaf_milan
+  maturity: production
+  enabled: true
+
+references:
+  contract: AGENTS.md
+  identity: IDENTITY.md
+  long_term_memory: MEMORY.md
+  architecture: docs/architecture.md

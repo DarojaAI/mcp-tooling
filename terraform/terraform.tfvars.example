@@ -21,8 +21,9 @@ image        = "ubuntu-24.04"
 #   8765 — Duffel
 #   8766 — google-workspace
 #   8767 — amadeus-hotels
+#   8768 — vm-ops (host diagnostics + gated destructive ops; see docs/integrations/vm-ops-mcp.md)
 #
 # To host a single server, list only that port:
 #   inbound_ports = [8765]
 # -----------------------------------------------------------------------------
-inbound_ports = [8765, 8766, 8767]
+inbound_ports = [8765, 8766, 8767, 8768]

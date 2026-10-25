@@ -1,0 +1,24 @@
+# Per-server config for the vm-ops MCP server.
+# Consumed by .github/workflows/deploy-mcp-server.yml + scripts/deploy/install-mcp-server.sh.
+#
+# Schema is documented in docs/integrations/mcp-integration-shapes.md.
+# This file is the canonical source of truth for what `deploy-mcp-server.yml`
+# needs to know about vm-ops: package name, port, required secrets.
+#
+# vm-ops is the host-diagnostics + gated destructive-ops capability.
+# It runs on the same VM it manages; there is no SSH-to-others surface
+# in v1 (see issue #4's "Out of scope").
+#
+# No OAuth scope guard — the safety gate for the two destructive tools
+# (restart_service, kill_process) is MCPTOOLING_CONFIRM_DESTRUCTIVE,
+# enforced at tool-call time, not at startup.
+
+name: vm-ops
+package: servers.vm_ops
+port: 8768
+secrets:
+  - MCPTOOLING_ALLOWED_TOKENS
+optional_secrets:
+  - MCPTOOLING_CONFIRM_DESTRUCTIVE
+  - MCPTOOLING_ALLOWED_TOOLS
+oauth_scope_guard: false

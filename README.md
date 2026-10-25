@@ -26,7 +26,7 @@ See [dev-nexus architectural boundaries](https://github.com/DarojaAI/dev-nexus/b
 ```
 mcp-tooling/
 ├── runtime/           # Shared framework (BaseTool, registry, stdio/HTTP servers)
-├── servers/           # Per-capability servers (duffel/, vm-ops/, cal/, etc.)
+├── servers/           # Per-capability servers (duffel/, google_workspace/, amadeus_hotels/, vm-ops/, ...)
 ├── terraform/         # Hetzner VM provisioning
 ├── scripts/ci/        # CI validation scripts
 ├── scripts/deploy/    # In-VM install script (called by deploy workflow)
